@@ -1,0 +1,13 @@
+# OS
+.DS_Store
+
+# Editor/IDE
+.vscode/
+.idea/
+*.iml
+
+# Firmware secrets (real Wi-Fi credentials) - copy firmware/GreenhouseESP32/Secrets.example.h to Secrets.h and fill in real values
+firmware/GreenhouseESP32/Secrets.h
+
+# Local Claude Code settings (per-developer, not shared)
+.claude/settings.local.json
