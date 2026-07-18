@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/heartbeats")
+@RequestMapping({"/api/heartbeats", "/api/v1/heartbeats"})
 public class HeartbeatController {
 
     private static final Logger LOGGER =

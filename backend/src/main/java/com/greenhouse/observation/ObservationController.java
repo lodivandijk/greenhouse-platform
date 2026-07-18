@@ -12,17 +12,19 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @RestController
-@RequestMapping("/api/observations")
+@RequestMapping({"/api/observations", "/api/v1/observations"})
 public class ObservationController {
 
     private static final Logger LOGGER =
             LoggerFactory.getLogger(ObservationController.class);
 
-    private final ObservationStore observationStore;
+    private final ObservationService observationService;
 
-    public ObservationController(ObservationStore observationStore) {
-        this.observationStore = observationStore;
+    public ObservationController(ObservationService observationService) {
+        this.observationService = observationService;
     }
 
     @PostMapping
@@ -30,7 +32,7 @@ public class ObservationController {
     public ObservationStatus receiveObservation(
             @Valid @RequestBody ObservationRequest request
     ) {
-        ObservationStatus status = observationStore.record(request);
+        ObservationStatus status = observationService.record(request);
 
         LOGGER.info(
                 "Observation received: deviceId={}, temperatureCelsius={}, humidityPercent={}, pressureHpa={}",
@@ -43,8 +45,18 @@ public class ObservationController {
         return status;
     }
 
+    @GetMapping
+    public List<ObservationStatus> getAllObservations() {
+        return observationService.getAll();
+    }
+
+    @GetMapping("/latest")
+    public ObservationStatus getLatestObservation() {
+        return observationService.getLatest();
+    }
+
     @GetMapping("/{deviceId}")
-    public ObservationStatus getLatest(@PathVariable String deviceId) {
-        return observationStore.getLatest(deviceId);
+    public ObservationStatus getLatestForDevice(@PathVariable String deviceId) {
+        return observationService.getLatest(deviceId);
     }
 }

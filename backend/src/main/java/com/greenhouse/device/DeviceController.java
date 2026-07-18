@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/devices")
+@RequestMapping({"/api/devices", "/api/v1/devices"})
 public class DeviceController {
 
     private final DeviceRegistry deviceRegistry;
