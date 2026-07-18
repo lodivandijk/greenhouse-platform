@@ -14,7 +14,7 @@ Connects to Wi-Fi
 Builds heartbeat payload
     │
     ▼
-POST /api/heartbeats
+POST /api/v1/heartbeats
     │
     ▼
 Spring Boot validates request
@@ -26,7 +26,7 @@ Device registry updated
 Device status returned
     │
     ▼
-GET /api/devices exposes latest status
+GET /api/v1/devices exposes latest status
 ```
 
 Example heartbeat:
