@@ -11,19 +11,19 @@ import java.util.List;
 @RequestMapping({"/api/devices", "/api/v1/devices"})
 public class DeviceController {
 
-    private final DeviceRegistry deviceRegistry;
+    private final DeviceService deviceService;
 
-    public DeviceController(DeviceRegistry deviceRegistry) {
-        this.deviceRegistry = deviceRegistry;
+    public DeviceController(DeviceService deviceService) {
+        this.deviceService = deviceService;
     }
 
     @GetMapping
     public List<DeviceStatus> getAllDevices() {
-        return deviceRegistry.getAllDevices();
+        return deviceService.getAllDevices();
     }
 
     @GetMapping("/{deviceId}")
     public DeviceStatus getDevice(@PathVariable String deviceId) {
-        return deviceRegistry.getDevice(deviceId);
+        return deviceService.getDevice(deviceId);
     }
 }

@@ -1,6 +1,6 @@
 package com.greenhouse.heartbeat;
 
-import com.greenhouse.device.DeviceRegistry;
+import com.greenhouse.device.DeviceService;
 import com.greenhouse.device.DeviceStatus;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -19,10 +19,10 @@ public class HeartbeatController {
     private static final Logger LOGGER =
             LoggerFactory.getLogger(HeartbeatController.class);
 
-    private final DeviceRegistry deviceRegistry;
+    private final DeviceService deviceService;
 
-    public HeartbeatController(DeviceRegistry deviceRegistry) {
-        this.deviceRegistry = deviceRegistry;
+    public HeartbeatController(DeviceService deviceService) {
+        this.deviceService = deviceService;
     }
 
     @PostMapping
@@ -30,7 +30,7 @@ public class HeartbeatController {
     public DeviceStatus receiveHeartbeat(
             @Valid @RequestBody HeartbeatRequest request
     ) {
-        DeviceStatus status = deviceRegistry.recordHeartbeat(request);
+        DeviceStatus status = deviceService.recordHeartbeat(request);
 
         LOGGER.info(
                 "Heartbeat received: deviceId={}, ipAddress={}, signalStrengthDbm={}, count={}",
