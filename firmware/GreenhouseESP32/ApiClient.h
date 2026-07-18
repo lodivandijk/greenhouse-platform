@@ -13,6 +13,13 @@ public:
       unsigned long uptimeSeconds
   );
 
+  int sendObservation(
+      const String& deviceId,
+      float temperatureCelsius,
+      float humidityPercent,
+      float pressureHpa
+  );
+
 private:
   String buildUrl() const;
   String buildPayload(
@@ -21,6 +28,14 @@ private:
       const String& ipAddress,
       int signalStrengthDbm,
       unsigned long uptimeSeconds
+  ) const;
+
+  String buildObservationUrl() const;
+  String buildObservationPayload(
+      const String& deviceId,
+      float temperatureCelsius,
+      float humidityPercent,
+      float pressureHpa
   ) const;
 };
 

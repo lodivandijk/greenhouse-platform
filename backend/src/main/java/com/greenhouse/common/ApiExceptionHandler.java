@@ -1,6 +1,7 @@
 package com.greenhouse.common;
 
 import com.greenhouse.device.DeviceNotFoundException;
+import com.greenhouse.observation.ObservationNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -20,11 +21,21 @@ public class ApiExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(ObservationNotFoundException.class)
+    ProblemDetail handleObservationNotFound(ObservationNotFoundException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
+        problem.setTitle("Observation not found");
+        return problem;
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ProblemDetail handleValidation(MethodArgumentNotValidException exception) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(
                 HttpStatus.BAD_REQUEST,
-                "The heartbeat payload is invalid."
+                "The request payload is invalid."
         );
         problem.setTitle("Validation failed");
         return problem;

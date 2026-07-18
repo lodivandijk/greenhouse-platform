@@ -52,3 +52,48 @@ String ApiClient::buildPayload(
 
   return json;
 }
+
+int ApiClient::sendObservation(
+    const String& deviceId,
+    float temperatureCelsius,
+    float humidityPercent,
+    float pressureHpa
+) {
+  HTTPClient http;
+  http.setTimeout(Config::API_TIMEOUT_MS);
+  http.begin(buildObservationUrl());
+  http.addHeader("Content-Type", "application/json");
+
+  const String payload = buildObservationPayload(
+      deviceId,
+      temperatureCelsius,
+      humidityPercent,
+      pressureHpa
+  );
+
+  const int httpCode = http.POST(payload);
+  http.end();
+
+  return httpCode;
+}
+
+String ApiClient::buildObservationUrl() const {
+  return "http://" + String(Config::API_HOST) + ":"
+      + String(Config::API_PORT) + String(Config::API_OBSERVATION_PATH);
+}
+
+String ApiClient::buildObservationPayload(
+    const String& deviceId,
+    float temperatureCelsius,
+    float humidityPercent,
+    float pressureHpa
+) const {
+  String json = "{";
+  json += "\"deviceId\":\"" + deviceId + "\",";
+  json += "\"temperatureCelsius\":" + String(temperatureCelsius, 2) + ",";
+  json += "\"humidityPercent\":" + String(humidityPercent, 2) + ",";
+  json += "\"pressureHpa\":" + String(pressureHpa, 2);
+  json += "}";
+
+  return json;
+}
