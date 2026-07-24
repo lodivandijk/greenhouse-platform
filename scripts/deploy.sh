@@ -68,4 +68,8 @@ REMOTE_SCRIPT
 
 echo "==> Deployment complete."
 echo "Deployed commit: $COMMIT_SHORT ($BRANCH)"
-echo "Verify: curl http://greenhouse-pi:8080/actuator/health"
+# Note: "greenhouse-pi" resolves for SSH via the ~/.ssh/config alias, but plain
+# hostname lookups (curl, ping) don't resolve it on this Mac -- MagicDNS isn't
+# wired into the OS resolver with the CLI-only (Homebrew) Tailscale install.
+# Use the Tailscale IP directly for anything other than ssh/scp.
+echo "Verify: curl http://100.77.67.92:8080/actuator/health"
