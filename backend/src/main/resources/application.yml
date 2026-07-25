@@ -1,0 +1,16 @@
+greenhouse:
+  twin:
+    greenhouse-id: greenhouse-01
+    greenhouse-name: Home Greenhouse
+    current-threshold: 2m
+    offline-threshold: 5m
+    environmental-limits:
+      minimum-temperature-celsius: 5.0
+      maximum-temperature-celsius: 35.0
+      minimum-humidity-percent: 25.0
+      maximum-humidity-percent: 90.0
+    zones:
+      - zone-id: zone-main
+        name: Main Greenhouse
+        device-ids:
+          - greenhouse-esp32-01

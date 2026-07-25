@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class ObservationService {
@@ -33,6 +34,11 @@ public class ObservationService {
         return observationRepository.findFirstByDeviceIdOrderByReceivedAtDesc(deviceId)
                 .map(this::toStatus)
                 .orElseThrow(() -> new ObservationNotFoundException(deviceId));
+    }
+
+    public Optional<ObservationStatus> findLatestForDevice(String deviceId) {
+        return observationRepository.findFirstByDeviceIdOrderByReceivedAtDesc(deviceId)
+                .map(this::toStatus);
     }
 
     public ObservationStatus getLatest() {
