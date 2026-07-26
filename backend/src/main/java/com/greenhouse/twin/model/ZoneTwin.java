@@ -6,7 +6,6 @@ public record ZoneTwin(
         String zoneId,
         String name,
         EnvironmentState environment,
-        EnvironmentAssessment assessment,
         DataQuality dataQuality,
         List<DeviceTwin> devices
 ) {

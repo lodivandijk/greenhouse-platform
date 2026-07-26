@@ -5,13 +5,10 @@ import com.greenhouse.twin.config.TwinProperties;
 import com.greenhouse.twin.config.ZoneProperties;
 import com.greenhouse.twin.model.DataQuality;
 import com.greenhouse.twin.model.DeviceTwin;
-import com.greenhouse.twin.model.EnvironmentAssessment;
 import com.greenhouse.twin.model.EnvironmentState;
 import com.greenhouse.twin.model.GreenhouseTwin;
 import com.greenhouse.twin.model.ZoneTwin;
-import com.greenhouse.twin.status.AssessmentLevel;
 import com.greenhouse.twin.status.DeviceStatus;
-import com.greenhouse.twin.status.EnvironmentCondition;
 import com.greenhouse.twin.status.FreshnessStatus;
 import com.greenhouse.twin.status.TwinStatus;
 import org.slf4j.Logger;
@@ -21,12 +18,10 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 @Component
 public class TwinAssembler {
@@ -48,8 +43,7 @@ public class TwinAssembler {
                         latestObservations,
                         generatedAt,
                         properties.currentThreshold(),
-                        properties.offlineThreshold(),
-                        properties.environmentalLimits()
+                        properties.offlineThreshold()
                 ))
                 .toList();
 
@@ -77,8 +71,7 @@ public class TwinAssembler {
             Map<String, Optional<ObservationStatus>> latestObservations,
             Instant now,
             Duration currentThreshold,
-            Duration offlineThreshold,
-            TwinProperties.EnvironmentalLimits limits
+            Duration offlineThreshold
     ) {
         List<DeviceTwin> devices = zoneProperties.deviceIds().stream()
                 .map(deviceId -> buildDeviceTwin(
@@ -104,13 +97,11 @@ public class TwinAssembler {
                 .orElse(new EnvironmentState(null, null, null));
 
         DataQuality dataQuality = buildDataQuality(selected, now, currentThreshold, offlineThreshold);
-        EnvironmentAssessment assessment = assessEnvironment(selected.isPresent(), environment, limits);
 
         return new ZoneTwin(
                 zoneProperties.zoneId(),
                 zoneProperties.name(),
                 environment,
-                assessment,
                 dataQuality,
                 devices
         );
@@ -199,39 +190,6 @@ public class TwinAssembler {
         return new DataQuality(freshness, ageSeconds, observedAt, complete);
     }
 
-    private EnvironmentAssessment assessEnvironment(
-            boolean hasObservation,
-            EnvironmentState environment,
-            TwinProperties.EnvironmentalLimits limits
-    ) {
-        if (!hasObservation) {
-            return new EnvironmentAssessment(AssessmentLevel.UNKNOWN, Set.of());
-        }
-
-        Set<EnvironmentCondition> conditions = new LinkedHashSet<>();
-
-        Double temperature = environment.temperatureCelsius();
-        if (temperature != null) {
-            if (temperature < limits.minimumTemperatureCelsius()) {
-                conditions.add(EnvironmentCondition.TOO_COLD);
-            } else if (temperature > limits.maximumTemperatureCelsius()) {
-                conditions.add(EnvironmentCondition.TOO_HOT);
-            }
-        }
-
-        Double humidity = environment.humidityPercent();
-        if (humidity != null) {
-            if (humidity < limits.minimumHumidityPercent()) {
-                conditions.add(EnvironmentCondition.TOO_DRY);
-            } else if (humidity > limits.maximumHumidityPercent()) {
-                conditions.add(EnvironmentCondition.TOO_HUMID);
-            }
-        }
-
-        AssessmentLevel level = conditions.isEmpty() ? AssessmentLevel.NORMAL : AssessmentLevel.WARNING;
-        return new EnvironmentAssessment(level, conditions);
-    }
-
     private TwinStatus determineTwinStatus(List<ZoneTwin> zones) {
         List<DeviceTwin> allDevices = zones.stream()
                 .flatMap(zone -> zone.devices().stream())
@@ -247,13 +205,6 @@ public class TwinAssembler {
                 .allMatch(device -> device.status() == DeviceStatus.OFFLINE || device.status() == DeviceStatus.UNKNOWN);
         if (allOfflineOrUnknown) {
             return TwinStatus.OFFLINE;
-        }
-
-        boolean hasActiveWarning = zones.stream()
-                .anyMatch(zone -> zone.assessment().level() == AssessmentLevel.WARNING
-                        && zone.dataQuality().freshness() != FreshnessStatus.STALE);
-        if (hasActiveWarning) {
-            return TwinStatus.WARNING;
         }
 
         boolean anyOnlineOrDelayed = allDevices.stream()

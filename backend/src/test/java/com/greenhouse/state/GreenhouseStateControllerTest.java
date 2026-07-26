@@ -1,4 +1,4 @@
-package com.greenhouse.twin;
+package com.greenhouse.state;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,14 +17,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = "greenhouse.evaluation.enabled=false")
 @AutoConfigureMockMvc
 @Transactional
-class TwinControllerTest {
+class GreenhouseStateControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @Test
-    void returnsCurrentTwinWithFreshObservation() throws Exception {
-        String payload = "{\"deviceId\":\"greenhouse-esp32-01\",\"temperatureCelsius\":22.5,"
+    void returnsTwinAndActiveAssessments() throws Exception {
+        mockMvc.perform(get("/api/v1/state"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.generatedAt").exists())
+                .andExpect(jsonPath("$.twin.greenhouseId").value("greenhouse-01"))
+                .andExpect(jsonPath("$.assessments").isArray());
+    }
+
+    @Test
+    void isReadOnly_doesNotModifyAssessments() throws Exception {
+        String payload = "{\"deviceId\":\"greenhouse-esp32-01\",\"temperatureCelsius\":40.0,"
                 + "\"humidityPercent\":58.0,\"pressureHpa\":1013.5}";
 
         mockMvc.perform(post("/api/v1/observations")
@@ -32,15 +42,12 @@ class TwinControllerTest {
                         .content(payload))
                 .andExpect(status().isAccepted());
 
-        mockMvc.perform(get("/api/v1/twin"))
+        mockMvc.perform(get("/api/v1/state"))
                 .andExpect(status().isOk())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.greenhouseId").value("greenhouse-01"))
-                .andExpect(jsonPath("$.status").value("NORMAL"))
-                .andExpect(jsonPath("$.zones[0].zoneId").value("zone-main"))
-                .andExpect(jsonPath("$.zones[0].environment.temperatureCelsius").value(22.5))
-                .andExpect(jsonPath("$.zones[0].dataQuality.freshness").value("CURRENT"))
-                .andExpect(jsonPath("$.zones[0].devices[0].status").value("ONLINE"))
-                .andExpect(jsonPath("$.zones[0].assessment").doesNotExist());
+                .andExpect(jsonPath("$.assessments").isEmpty());
+
+        mockMvc.perform(get("/api/v1/assessments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assessments").isEmpty());
     }
 }

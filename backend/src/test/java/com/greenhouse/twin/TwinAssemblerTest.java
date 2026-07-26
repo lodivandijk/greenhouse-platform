@@ -6,9 +6,7 @@ import com.greenhouse.twin.config.ZoneProperties;
 import com.greenhouse.twin.model.DeviceTwin;
 import com.greenhouse.twin.model.GreenhouseTwin;
 import com.greenhouse.twin.model.ZoneTwin;
-import com.greenhouse.twin.status.AssessmentLevel;
 import com.greenhouse.twin.status.DeviceStatus;
-import com.greenhouse.twin.status.EnvironmentCondition;
 import com.greenhouse.twin.status.FreshnessStatus;
 import com.greenhouse.twin.status.TwinStatus;
 import org.junit.jupiter.api.Test;
@@ -71,7 +69,6 @@ class TwinAssemblerTest {
 
         assertThat(firstDevice(twin).status()).isEqualTo(DeviceStatus.UNKNOWN);
         assertThat(firstZone(twin).dataQuality().freshness()).isEqualTo(FreshnessStatus.UNKNOWN);
-        assertThat(firstZone(twin).assessment().level()).isEqualTo(AssessmentLevel.UNKNOWN);
         assertThat(twin.status()).isEqualTo(TwinStatus.UNKNOWN);
         assertThat(twin.lastUpdatedAt()).isNull();
     }
@@ -85,7 +82,6 @@ class TwinAssemblerTest {
 
         assertThat(firstDevice(twin).status()).isEqualTo(DeviceStatus.ONLINE);
         assertThat(firstZone(twin).dataQuality().freshness()).isEqualTo(FreshnessStatus.CURRENT);
-        assertThat(firstZone(twin).assessment().level()).isEqualTo(AssessmentLevel.NORMAL);
         assertThat(firstZone(twin).dataQuality().complete()).isTrue();
         assertThat(twin.status()).isEqualTo(TwinStatus.NORMAL);
     }
@@ -134,94 +130,6 @@ class TwinAssemblerTest {
 
         assertThat(firstDevice(twin).status()).isEqualTo(DeviceStatus.OFFLINE);
         assertThat(firstZone(twin).dataQuality().freshness()).isEqualTo(FreshnessStatus.STALE);
-    }
-
-    @Test
-    void tooHot() {
-        GreenhouseTwin twin = assembleSingleDevice(
-                Optional.of(observation(DEVICE_ID, 38.0, 60.0, 1012.0, NOW.minusSeconds(10)))
-        );
-
-        assertThat(firstZone(twin).assessment().level()).isEqualTo(AssessmentLevel.WARNING);
-        assertThat(firstZone(twin).assessment().conditions()).containsExactly(EnvironmentCondition.TOO_HOT);
-        assertThat(twin.status()).isEqualTo(TwinStatus.WARNING);
-    }
-
-    @Test
-    void tooCold() {
-        GreenhouseTwin twin = assembleSingleDevice(
-                Optional.of(observation(DEVICE_ID, 2.0, 60.0, 1012.0, NOW.minusSeconds(10)))
-        );
-
-        assertThat(firstZone(twin).assessment().conditions()).containsExactly(EnvironmentCondition.TOO_COLD);
-        assertThat(twin.status()).isEqualTo(TwinStatus.WARNING);
-    }
-
-    @Test
-    void tooDry() {
-        GreenhouseTwin twin = assembleSingleDevice(
-                Optional.of(observation(DEVICE_ID, 22.0, 10.0, 1012.0, NOW.minusSeconds(10)))
-        );
-
-        assertThat(firstZone(twin).assessment().conditions()).containsExactly(EnvironmentCondition.TOO_DRY);
-        assertThat(twin.status()).isEqualTo(TwinStatus.WARNING);
-    }
-
-    @Test
-    void tooHumid() {
-        GreenhouseTwin twin = assembleSingleDevice(
-                Optional.of(observation(DEVICE_ID, 22.0, 95.0, 1012.0, NOW.minusSeconds(10)))
-        );
-
-        assertThat(firstZone(twin).assessment().conditions()).containsExactly(EnvironmentCondition.TOO_HUMID);
-        assertThat(twin.status()).isEqualTo(TwinStatus.WARNING);
-    }
-
-    @Test
-    void multipleWarnings_hotAndDry() {
-        GreenhouseTwin twin = assembleSingleDevice(
-                Optional.of(observation(DEVICE_ID, 38.0, 10.0, 1012.0, NOW.minusSeconds(10)))
-        );
-
-        assertThat(firstZone(twin).assessment().level()).isEqualTo(AssessmentLevel.WARNING);
-        assertThat(firstZone(twin).assessment().conditions())
-                .containsExactly(EnvironmentCondition.TOO_HOT, EnvironmentCondition.TOO_DRY);
-    }
-
-    @Test
-    void boundaryEnvironmentalValues_areAcceptable() {
-        GreenhouseTwin twin = assembleSingleDevice(
-                Optional.of(observation(DEVICE_ID, 35.0, 90.0, 1012.0, NOW.minusSeconds(10)))
-        );
-
-        assertThat(firstZone(twin).assessment().level()).isEqualTo(AssessmentLevel.NORMAL);
-        assertThat(firstZone(twin).assessment().conditions()).isEmpty();
-
-        GreenhouseTwin twinAtMinimum = assembleSingleDevice(
-                Optional.of(observation(DEVICE_ID, 5.0, 25.0, 1012.0, NOW.minusSeconds(10)))
-        );
-
-        assertThat(firstZone(twinAtMinimum).assessment().level()).isEqualTo(AssessmentLevel.NORMAL);
-        assertThat(firstZone(twinAtMinimum).assessment().conditions()).isEmpty();
-    }
-
-    @Test
-    void justOverBoundary_isAWarning() {
-        GreenhouseTwin twin = assembleSingleDevice(
-                Optional.of(observation(DEVICE_ID, 35.1, 60.0, 1012.0, NOW.minusSeconds(10)))
-        );
-
-        assertThat(firstZone(twin).assessment().conditions()).containsExactly(EnvironmentCondition.TOO_HOT);
-    }
-
-    @Test
-    void nullTemperature_doesNotProduceAWarning() {
-        GreenhouseTwin twin = assembleSingleDevice(
-                Optional.of(observation(DEVICE_ID, null, 60.0, 1012.0, NOW.minusSeconds(10)))
-        );
-
-        assertThat(firstZone(twin).assessment().level()).isEqualTo(AssessmentLevel.NORMAL);
-        assertThat(firstZone(twin).assessment().conditions()).isEmpty();
     }
 
     @Test
@@ -293,13 +201,12 @@ class TwinAssemblerTest {
     }
 
     @Test
-    void staleWarning_reportsOfflineNotWarning() {
+    void staleObservation_reportsOffline() {
         Instant staleObservedAt = NOW.minus(OFFLINE_THRESHOLD).minusSeconds(1);
         GreenhouseTwin twin = assembleSingleDevice(
                 Optional.of(observation(DEVICE_ID, 38.0, 10.0, 1012.0, staleObservedAt))
         );
 
-        assertThat(firstZone(twin).assessment().level()).isEqualTo(AssessmentLevel.WARNING);
         assertThat(firstZone(twin).dataQuality().freshness()).isEqualTo(FreshnessStatus.STALE);
         assertThat(twin.status()).isEqualTo(TwinStatus.OFFLINE);
     }
