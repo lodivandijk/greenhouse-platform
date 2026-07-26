@@ -14,3 +14,8 @@ greenhouse:
         name: Main Greenhouse
         device-ids:
           - greenhouse-esp32-01
+
+  evaluation:
+    enabled: true
+    interval: PT1M
+    initial-delay: PT10S

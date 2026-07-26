@@ -3,7 +3,7 @@ package com.greenhouse;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
+@SpringBootTest(properties = "greenhouse.evaluation.enabled=false")
 class GreenhouseApplicationTests {
 
     @Test

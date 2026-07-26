@@ -9,7 +9,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
+@SpringBootTest(properties = "greenhouse.evaluation.enabled=false")
 class DeviceMigrationTest {
 
     @Autowired
