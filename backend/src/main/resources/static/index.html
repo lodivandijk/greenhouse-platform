@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Greenhouse Platform</title>
+<meta name="description" content="Live status dashboard for the Greenhouse Platform.">
+<meta name="theme-color" content="#416b50">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Greenhouse">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/greenhouse.svg">
+<link rel="icon" href="/icons/greenhouse.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body data-app="greenhouse-dashboard">
+
+<div id="full-page-error" class="full-page-error" hidden>
+  <h1>Greenhouse dashboard unavailable</h1>
+  <p>The application could not retrieve the current greenhouse state.</p>
+  <p>Check that the Greenhouse Platform service is running and reachable.</p>
+</div>
+
+<div id="app-shell">
+  <header class="app-header">
+    <div class="app-header__brand">
+      <img src="/icons/greenhouse.svg" alt="" class="app-header__icon" aria-hidden="true">
+      <span class="app-header__label">Greenhouse</span>
+    </div>
+
+    <div class="app-header__identity">
+      <h1 id="greenhouse-name" class="app-header__name">Loading&hellip;</h1>
+      <p class="connectivity" aria-live="polite">
+        <span id="connectivity-dot" class="connectivity__dot" data-status="unknown" aria-hidden="true"></span>
+        <span id="connectivity-label" class="connectivity__label">Connecting&hellip;</span>
+      </p>
+    </div>
+
+    <div class="app-header__meta">
+      <p class="app-header__updated" aria-live="polite">
+        Updated <time id="last-refreshed-time">&mdash;</time>
+      </p>
+      <button id="refresh-button" type="button" class="button button--refresh">
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <div id="api-warning" class="api-warning" role="status" hidden>
+    <p class="api-warning__title">Unable to refresh dashboard</p>
+    <p id="api-warning-message" class="api-warning__message"></p>
+  </div>
+
+  <main class="dashboard" id="dashboard-main">
+    <section aria-labelledby="environment-heading" class="panel">
+      <h2 id="environment-heading" class="panel__title">Current environment</h2>
+      <div id="environment-cards" class="metric-grid">
+        <p class="loading-placeholder">Loading current greenhouse state&hellip;</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="assessments-heading" class="panel">
+      <h2 id="assessments-heading" class="panel__title">Active assessments</h2>
+      <div id="assessments-list" class="assessments-list" aria-live="polite">
+        <p class="loading-placeholder">Loading current greenhouse state&hellip;</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="system-heading" class="panel">
+      <h2 id="system-heading" class="panel__title">System status</h2>
+      <dl id="system-status" class="status-list">
+      </dl>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Greenhouse Platform</p>
+    <p>API status: <span id="footer-api-state">Connecting&hellip;</span></p>
+    <p>Refreshes every <span id="footer-refresh-interval"></span> seconds</p>
+  </footer>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

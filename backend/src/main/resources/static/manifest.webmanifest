@@ -1,0 +1,15 @@
+{
+  "name": "Greenhouse Platform",
+  "short_name": "Greenhouse",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f2",
+  "theme_color": "#416b50",
+  "icons": [
+    {
+      "src": "/icons/greenhouse.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

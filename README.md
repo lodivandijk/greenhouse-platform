@@ -11,3 +11,7 @@ Monorepo for the greenhouse project: an ESP32 sensor node reporting into a Sprin
 ## Current scope
 
 See [architecture/greenhouse-first-iteration-handoff.md](architecture/greenhouse-first-iteration-handoff.md) for the current iteration's scope and acceptance criteria.
+
+## Dashboard
+
+A read-only status dashboard is served at `/` by the backend (static resources, no separate frontend). See [docs/ui/ui-v1.md](docs/ui/ui-v1.md) for details, file locations, and manual verification steps.
