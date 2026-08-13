@@ -1,6 +1,7 @@
 package com.greenhouse.crop;
 
 import com.greenhouse.common.DomainValidationException;
+import com.greenhouse.goal.GoalRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -11,11 +12,24 @@ import java.util.List;
 public class CropService {
 
     private final CropRepository cropRepository;
+    private final GoalRepository goalRepository;
+    private final HarvestRepository harvestRepository;
+    private final CropObservationRepository cropObservationRepository;
     private final CropMapper cropMapper;
     private final Clock clock;
 
-    public CropService(CropRepository cropRepository, CropMapper cropMapper, Clock clock) {
+    public CropService(
+            CropRepository cropRepository,
+            GoalRepository goalRepository,
+            HarvestRepository harvestRepository,
+            CropObservationRepository cropObservationRepository,
+            CropMapper cropMapper,
+            Clock clock
+    ) {
         this.cropRepository = cropRepository;
+        this.goalRepository = goalRepository;
+        this.harvestRepository = harvestRepository;
+        this.cropObservationRepository = cropObservationRepository;
         this.cropMapper = cropMapper;
         this.clock = clock;
     }
@@ -81,6 +95,28 @@ public class CropService {
 
     public List<CropResponse> listCrops() {
         return cropRepository.findAll().stream().map(cropMapper::toResponse).toList();
+    }
+
+    // Hard delete, deliberately scoped to empty crops only - a crop with any recorded
+    // goals, harvests or observations must be retired via updateCrop(status=ENDED)
+    // instead. This is a cleanup tool for mistakes, not a way to erase real history
+    // through a single conversational turn. See ADR-016.
+    public CropResponse deleteCrop(Long cropId) {
+        Crop crop = findCropOrThrow(cropId);
+
+        boolean hasGoals = goalRepository.existsByCropId(cropId);
+        boolean hasHarvests = harvestRepository.existsByCropId(cropId);
+        boolean hasObservations = cropObservationRepository.existsByCropId(cropId);
+        if (hasGoals || hasHarvests || hasObservations) {
+            throw new DomainValidationException(
+                    "Crop " + cropId + " has recorded goals, harvests, or observations and cannot be deleted. "
+                            + "Retire it instead via update_crop with status ENDED, or delete its individual "
+                            + "records first.");
+        }
+
+        CropResponse response = cropMapper.toResponse(crop);
+        cropRepository.delete(crop);
+        return response;
     }
 
     Crop findCropOrThrow(Long cropId) {

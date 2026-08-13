@@ -147,4 +147,25 @@ public class CropTools {
                 }))
                 .build();
     }
+
+    @Bean
+    public McpServerFeatures.SyncToolSpecification deleteCropTool() {
+        McpSchema.Tool tool = McpSchema.Tool.builder()
+                .name("delete_crop")
+                .description("Permanently deletes a crop. Only works if the crop has no recorded goals, harvests "
+                        + "or observations - this is for correcting a mistake (e.g. a crop created with the wrong "
+                        + "species, or a duplicate), not for ending a real crop's life. To retire a crop that has "
+                        + "real history, use update_crop with status ENDED instead. If this tool reports the crop "
+                        + "has history, ask the user whether they meant to retire it rather than delete it.")
+                .inputSchema(mcpJsonMapper, "{\"type\":\"object\",\"properties\":{"
+                        + "\"cropId\":{\"type\":\"integer\",\"description\":\"The numeric id of the crop to delete.\"}"
+                        + "},\"required\":[\"cropId\"]}")
+                .build();
+
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(tool)
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                        cropService.deleteCrop(McpToolSupport.requireLong(request.arguments(), "cropId"))))
+                .build();
+    }
 }

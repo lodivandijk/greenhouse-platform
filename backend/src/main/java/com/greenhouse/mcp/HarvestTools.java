@@ -54,4 +54,22 @@ public class HarvestTools {
                 }))
                 .build();
     }
+
+    @Bean
+    public McpServerFeatures.SyncToolSpecification deleteHarvestTool() {
+        McpSchema.Tool tool = McpSchema.Tool.builder()
+                .name("delete_harvest")
+                .description("Permanently deletes a single harvest record - use this to correct a harvest that "
+                        + "was recorded in error (wrong quantity, wrong crop, duplicate entry).")
+                .inputSchema(mcpJsonMapper, "{\"type\":\"object\",\"properties\":{"
+                        + "\"harvestId\":{\"type\":\"integer\",\"description\":\"The numeric id of the harvest to delete.\"}"
+                        + "},\"required\":[\"harvestId\"]}")
+                .build();
+
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(tool)
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                        harvestService.deleteHarvest(McpToolSupport.requireLong(request.arguments(), "harvestId"))))
+                .build();
+    }
 }

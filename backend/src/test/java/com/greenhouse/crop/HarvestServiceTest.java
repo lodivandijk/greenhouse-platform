@@ -9,10 +9,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -67,5 +69,30 @@ class HarvestServiceTest {
     void recordHarvest_missingUnit_throwsValidationException() {
         assertThatThrownBy(() -> service().recordHarvest(1L, null, 100.0, null, null))
                 .isInstanceOf(DomainValidationException.class);
+    }
+
+    @Test
+    void deleteHarvest_existingHarvest_deletesAndReturnsIt() {
+        Harvest harvest = new Harvest();
+        harvest.setId(11L);
+        harvest.setCropId(1L);
+        harvest.setQuantity(180.0);
+        harvest.setUnit(HarvestUnit.GRAMS);
+
+        when(harvestRepository.findById(11L)).thenReturn(Optional.of(harvest));
+
+        HarvestResponse response = service().deleteHarvest(11L);
+
+        assertThat(response.id()).isEqualTo(11L);
+        verify(harvestRepository).delete(harvest);
+    }
+
+    @Test
+    void deleteHarvest_unknownHarvest_throwsNotFound() {
+        when(harvestRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().deleteHarvest(404L))
+                .isInstanceOf(HarvestNotFoundException.class)
+                .hasMessageContaining("404");
     }
 }

@@ -1,6 +1,7 @@
 package com.greenhouse.mcp;
 
 import com.greenhouse.crop.CropRepository;
+import com.greenhouse.crop.HarvestRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +41,9 @@ class McpServerIntegrationTest {
 
     @Autowired
     private CropRepository cropRepository;
+
+    @Autowired
+    private HarvestRepository harvestRepository;
 
     private final List<Long> createdCropIds = new ArrayList<>();
 
@@ -82,7 +86,8 @@ class McpServerIntegrationTest {
 
         assertThat(toolNames).contains(
                 "get_greenhouse_state", "list_crops", "get_crop", "get_crop_history", "list_goals",
-                "create_crop", "update_crop", "create_goal", "record_harvest", "record_crop_observation"
+                "create_crop", "update_crop", "create_goal", "record_harvest", "record_crop_observation",
+                "delete_crop", "delete_goal", "delete_harvest", "delete_crop_observation"
         );
 
         JsonNode getCropTool = StreamSupport.stream(tools.spliterator(), false)
@@ -167,5 +172,56 @@ class McpServerIntegrationTest {
         assertThat(body.path("result").path("isError").asBoolean()).isTrue();
         assertThat(body.path("result").path("content").get(0).path("text").asString())
                 .contains("Invalid goalType");
+    }
+
+    @Test
+    void toolCall_deleteCrop_emptyCrop_succeeds() throws Exception {
+        String sessionId = initializeSession();
+
+        HttpResponse<String> createResponse = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "create_crop", Map.of(
+                        "species", "Basil-delete-test", "location", "planter-delete-test"
+                )));
+        JsonNode createBody = McpTestSupport.parseJsonRpcBody(jsonMapper, createResponse.body());
+        long cropId = jsonMapper.readTree(createBody.path("result").path("content").get(0).path("text").asString())
+                .path("id").asLong();
+        createdCropIds.add(cropId);
+
+        HttpResponse<String> deleteResponse = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "delete_crop", Map.of("cropId", cropId)));
+        JsonNode deleteBody = McpTestSupport.parseJsonRpcBody(jsonMapper, deleteResponse.body());
+        assertThat(deleteBody.path("result").path("isError").asBoolean(false)).isFalse();
+
+        HttpResponse<String> getResponse = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "get_crop", Map.of("cropId", cropId)));
+        JsonNode getBody = McpTestSupport.parseJsonRpcBody(jsonMapper, getResponse.body());
+        assertThat(getBody.path("result").path("isError").asBoolean()).isTrue();
+    }
+
+    @Test
+    void toolCall_deleteCrop_withRecordedHarvest_isBlockedWithCleanError() throws Exception {
+        String sessionId = initializeSession();
+
+        HttpResponse<String> createResponse = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "create_crop", Map.of(
+                        "species", "Basil-delete-blocked-test", "location", "planter-delete-blocked-test"
+                )));
+        JsonNode createBody = McpTestSupport.parseJsonRpcBody(jsonMapper, createResponse.body());
+        long cropId = jsonMapper.readTree(createBody.path("result").path("content").get(0).path("text").asString())
+                .path("id").asLong();
+        createdCropIds.add(cropId);
+
+        McpTestSupport.post(baseUrl(), TOKEN, sessionId, McpTestSupport.toolsCallRequestBody(
+                jsonMapper, "record_harvest", Map.of("cropId", cropId, "quantity", 50.0, "unit", "GRAMS")));
+
+        HttpResponse<String> deleteResponse = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "delete_crop", Map.of("cropId", cropId)));
+        JsonNode deleteBody = McpTestSupport.parseJsonRpcBody(jsonMapper, deleteResponse.body());
+        assertThat(deleteBody.path("result").path("isError").asBoolean()).isTrue();
+        assertThat(deleteBody.path("result").path("content").get(0).path("text").asString())
+                .contains("cannot be deleted");
+
+        // Clean up the harvest directly so the crop can be cleaned up normally in @AfterEach.
+        harvestRepository.deleteAll(harvestRepository.findAllByCropIdOrderByHarvestedAtAsc(cropId));
     }
 }

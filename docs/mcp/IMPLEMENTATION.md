@@ -35,10 +35,10 @@ com.greenhouse.mcp
 ├── McpAuthenticationFilter     bearer-token check, scoped to /mcp only
 ├── McpToolSupport               shared argument-parsing + error-mapping helpers
 ├── GreenhouseStateTools         get_greenhouse_state
-├── CropTools                    list_crops, get_crop, get_crop_history, create_crop, update_crop
-├── GoalTools                    list_goals, create_goal
-├── HarvestTools                 record_harvest
-└── CropObservationTools         record_crop_observation
+├── CropTools                    list_crops, get_crop, get_crop_history, create_crop, update_crop, delete_crop
+├── GoalTools                    list_goals, create_goal, delete_goal
+├── HarvestTools                 record_harvest, delete_harvest
+└── CropObservationTools         record_crop_observation, delete_crop_observation
 ```
 
 Each `*Tools` class is a `@Configuration` whose `@Bean` methods each return one `McpServerFeatures.SyncToolSpecification`. This mirrors the tool groupings in the milestone spec, and keeps each file's job to exactly one greenhouse concept.
@@ -75,11 +75,11 @@ Every tool calls a `@Service` bean directly — never a repository, never throug
 | Tool | Domain service |
 |---|---|
 | `get_greenhouse_state` | `com.greenhouse.state.GreenhouseStateService` |
-| `list_crops`, `get_crop`, `create_crop`, `update_crop` | `com.greenhouse.crop.CropService` |
+| `list_crops`, `get_crop`, `create_crop`, `update_crop`, `delete_crop` | `com.greenhouse.crop.CropService` |
 | `get_crop_history` | `com.greenhouse.crop.CropHistoryService` |
-| `list_goals`, `create_goal` | `com.greenhouse.goal.GoalService` |
-| `record_harvest` | `com.greenhouse.crop.HarvestService` |
-| `record_crop_observation` | `com.greenhouse.crop.CropObservationService` |
+| `list_goals`, `create_goal`, `delete_goal` | `com.greenhouse.goal.GoalService` |
+| `record_harvest`, `delete_harvest` | `com.greenhouse.crop.HarvestService` |
+| `record_crop_observation`, `delete_crop_observation` | `com.greenhouse.crop.CropObservationService` |
 
 REST controllers (`CropController`) call these same services directly too — see [ADR-007](../architecture/decisions/ADR-007-mcp-as-agent-capability-boundary.md) for why neither adapter is layered through the other.
 
@@ -94,7 +94,7 @@ REST controllers (`CropController`) call these same services directly too — se
 
 ## Known limitations
 
-- No delete tools for any crop-domain entity — a crop is retired via `update_crop` (`status: ENDED`), never removed.
+- `delete_crop` is intentionally narrow (see [ADR-016](../architecture/decisions/ADR-016-scoped-delete-capability.md)): it refuses if the crop has any goals, harvests, or observations. Retiring a crop with real history still goes through `update_crop` (`status: ENDED`). There is no bulk delete, cascade delete, or undo for any of the four delete tools.
 - `update_crop` has no MCP tool description covering every field's exact update semantics beyond "only provided fields change" — see `CropTools.updateCropTool()` for the authoritative field list.
 - Tool descriptions are English prose, not machine-checked against the actual enum/service constraints — if `CropObservationMetric` or `GoalType` gain new values, the tool descriptions listing valid values by name must be updated by hand.
 - No rate limiting or per-client quotas on `/mcp` — acceptable for a single-operator home deployment, would need revisiting for multi-tenant use.

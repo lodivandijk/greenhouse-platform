@@ -8,4 +8,6 @@ public interface GoalRepository extends JpaRepository<Goal, Long> {
     List<Goal> findAllByCropIdOrderByCreatedAtAsc(Long cropId);
 
     List<Goal> findAllByCropIdAndStatusOrderByCreatedAtAsc(Long cropId, GoalStatus status);
+
+    boolean existsByCropId(Long cropId);
 }

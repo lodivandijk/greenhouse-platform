@@ -1,6 +1,8 @@
 package com.greenhouse.common;
 
 import com.greenhouse.crop.CropNotFoundException;
+import com.greenhouse.crop.CropObservationNotFoundException;
+import com.greenhouse.crop.HarvestNotFoundException;
 import com.greenhouse.device.DeviceNotFoundException;
 import com.greenhouse.goal.GoalNotFoundException;
 import com.greenhouse.observation.ObservationNotFoundException;
@@ -51,6 +53,26 @@ public class ApiExceptionHandler {
                 exception.getMessage()
         );
         problem.setTitle("Goal not found");
+        return problem;
+    }
+
+    @ExceptionHandler(HarvestNotFoundException.class)
+    ProblemDetail handleHarvestNotFound(HarvestNotFoundException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
+        problem.setTitle("Harvest not found");
+        return problem;
+    }
+
+    @ExceptionHandler(CropObservationNotFoundException.class)
+    ProblemDetail handleCropObservationNotFound(CropObservationNotFoundException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
+        problem.setTitle("Crop observation not found");
         return problem;
     }
 

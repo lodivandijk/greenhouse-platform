@@ -73,4 +73,23 @@ public class CropObservationTools {
                 }))
                 .build();
     }
+
+    @Bean
+    public McpServerFeatures.SyncToolSpecification deleteCropObservationTool() {
+        McpSchema.Tool tool = McpSchema.Tool.builder()
+                .name("delete_crop_observation")
+                .description("Permanently deletes a single crop observation - use this to correct an observation "
+                        + "that was recorded in error (wrong metric, wrong value, wrong crop).")
+                .inputSchema(mcpJsonMapper, "{\"type\":\"object\",\"properties\":{"
+                        + "\"observationId\":{\"type\":\"integer\",\"description\":\"The numeric id of the observation to delete.\"}"
+                        + "},\"required\":[\"observationId\"]}")
+                .build();
+
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(tool)
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                        cropObservationService.deleteObservation(
+                                McpToolSupport.requireLong(request.arguments(), "observationId"))))
+                .build();
+    }
 }

@@ -136,10 +136,11 @@ All under the same origin as the UI (`http://<host>:8080`), no CORS configuratio
 | `POST` | `/api/v1/crops` | Create a crop |
 | `GET` | `/api/v1/crops`, `/api/v1/crops/{cropId}` | List / get a crop |
 | `PATCH` | `/api/v1/crops/{cropId}` | Update a crop (partial) |
+| `DELETE` | `/api/v1/crops/{cropId}` | Delete a crop (only if it has no goals/harvests/observations) |
 | `GET` | `/api/v1/crops/{cropId}/history` | Crop + goals + harvests + observations, composed |
-| `POST`/`GET` | `/api/v1/crops/{cropId}/harvests` | Record / list harvests |
-| `POST`/`GET` | `/api/v1/crops/{cropId}/observations` | Record / list crop observations |
-| `POST`/`GET` | `/api/v1/crops/{cropId}/goals` | Create / list goals |
+| `POST`/`GET`/`DELETE` | `/api/v1/crops/{cropId}/harvests(/{harvestId})` | Record / list / delete harvests |
+| `POST`/`GET`/`DELETE` | `/api/v1/crops/{cropId}/observations(/{observationId})` | Record / list / delete crop observations |
+| `POST`/`GET`/`DELETE` | `/api/v1/crops/{cropId}/goals(/{goalId})` | Create / list / delete goals |
 | `POST` | `/mcp` | MCP Streamable HTTP endpoint (bearer-token authenticated) — see §8 |
 | `GET` | `/` | Read-only dashboard (static HTML/CSS/JS) |
 | `GET` | `/actuator/health`, `/actuator/info` | Operational health (`info` currently returns `{}` — the env info contributor isn't populated) |
@@ -157,14 +158,17 @@ REST and MCP tools both call the same domain services directly (`CropService`, `
 
 ## 8. MCP agent interface
 
-An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Ten tools are exposed:
+An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Fourteen tools are exposed:
 
 ```
-Read:  get_greenhouse_state, list_crops, get_crop, get_crop_history, list_goals
-Write: create_crop, update_crop, create_goal, record_harvest, record_crop_observation
+Read:   get_greenhouse_state, list_crops, get_crop, get_crop_history, list_goals
+Write:  create_crop, update_crop, create_goal, record_harvest, record_crop_observation
+Delete: delete_crop, delete_goal, delete_harvest, delete_crop_observation
 ```
 
-Every tool calls a domain service directly (never a repository directly, never REST), validates its input, and maps known domain errors (`CropNotFoundException`, `GoalNotFoundException`, `DomainValidationException`) to a clean text message rather than a raw exception (`McpToolSupport`). No tool executes SQL, shell commands, or file access.
+`delete_crop` only succeeds if the crop has no recorded goals, harvests, or observations — anything with real history must be retired via `update_crop` (`status: ENDED`) instead. The three leaf-record delete tools (`delete_goal`/`delete_harvest`/`delete_crop_observation`) are unrestricted, since a single leaf record has no children of its own. See ADR-016.
+
+Every tool calls a domain service directly (never a repository directly, never REST), validates its input, and maps known domain errors (`CropNotFoundException`, `GoalNotFoundException`, `HarvestNotFoundException`, `CropObservationNotFoundException`, `DomainValidationException`) to a clean text message rather than a raw exception (`McpToolSupport`). No tool executes SQL, shell commands, or file access.
 
 **Authentication**: a bearer-token servlet filter (`McpAuthenticationFilter`) guards every request under `/mcp`; every other endpoint is unaffected. The token is supplied via `GREENHOUSE_MCP_AUTH_TOKEN` (same environment-variable-backed pattern as the database password). If unset, every `/mcp` request is rejected — the filter fails closed, never open. Full client setup: `docs/mcp/AGENT_SETUP.md`. Implementation detail: `docs/mcp/IMPLEMENTATION.md`.
 
@@ -180,5 +184,5 @@ Single-page, read-only dashboard at `GET /`, served from `backend/src/main/resou
 - **No retention policy on `observation`.** The table grows unboundedly; no rollup or archival exists yet.
 - **1-minute assessment evaluation cadence.** Real conditions can be up to ~1 minute stale in assessment terms even when the twin itself is current.
 - **No authentication on REST or the UI** — only `/mcp` requires a bearer token. Access control for everything else is entirely at the network layer (Tailscale). Acceptable for a single-user home deployment; would need revisiting before any multi-user or public exposure.
-- **No delete/end-of-life tools for crop data.** A crop is marked `ENDED` via `update_crop`, never deleted; there is no way to remove a mistaken crop, goal, harvest, or observation short of direct database access.
+- **`delete_crop` is deliberately narrow.** It only works on crops with zero recorded history — a real crop with goals/harvests/observations can only be retired (`update_crop`, `status: ENDED`), never deleted, short of manually deleting its child records first. No bulk delete, cascade delete, or undo/soft-delete exists for any of the four delete tools.
 - **Local dev and the Pi have independently-managed database credentials and MCP auth tokens** (not shared, not centrally rotated).

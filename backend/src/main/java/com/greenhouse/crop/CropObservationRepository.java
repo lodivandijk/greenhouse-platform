@@ -6,4 +6,6 @@ import java.util.List;
 
 public interface CropObservationRepository extends JpaRepository<CropObservation, Long> {
     List<CropObservation> findAllByCropIdOrderByObservedAtAsc(Long cropId);
+
+    boolean existsByCropId(Long cropId);
 }

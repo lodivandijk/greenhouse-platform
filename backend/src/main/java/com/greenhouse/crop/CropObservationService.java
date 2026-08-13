@@ -80,6 +80,14 @@ public class CropObservationService {
                 .toList();
     }
 
+    public CropObservationResponse deleteObservation(Long observationId) {
+        CropObservation observation = cropObservationRepository.findById(observationId)
+                .orElseThrow(() -> new CropObservationNotFoundException(observationId));
+        CropObservationResponse response = cropMapper.toResponse(observation);
+        cropObservationRepository.delete(observation);
+        return response;
+    }
+
     private void validateValue(CropObservationValueType valueType, Double numericValue, String textValue, Boolean booleanValue) {
         if (valueType == null) {
             throw new DomainValidationException("valueType is required.");

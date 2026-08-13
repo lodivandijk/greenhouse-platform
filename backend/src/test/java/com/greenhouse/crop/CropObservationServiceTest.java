@@ -9,10 +9,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -108,5 +110,32 @@ class CropObservationServiceTest {
                 99L, CropObservationMetric.PLANT_HEALTH, CropObservationValueType.TEXT,
                 null, "healthy", null, null, CropObservationSource.HUMAN, null, null, null, null
         )).isInstanceOf(CropNotFoundException.class);
+    }
+
+    @Test
+    void deleteObservation_existingObservation_deletesAndReturnsIt() {
+        CropObservation observation = new CropObservation();
+        observation.setId(21L);
+        observation.setCropId(1L);
+        observation.setMetric(CropObservationMetric.PLANT_HEALTH);
+        observation.setValueType(CropObservationValueType.TEXT);
+        observation.setTextValue("healthy");
+        observation.setSource(CropObservationSource.HUMAN);
+
+        when(cropObservationRepository.findById(21L)).thenReturn(Optional.of(observation));
+
+        CropObservationResponse response = service().deleteObservation(21L);
+
+        assertThat(response.id()).isEqualTo(21L);
+        verify(cropObservationRepository).delete(observation);
+    }
+
+    @Test
+    void deleteObservation_unknownObservation_throwsNotFound() {
+        when(cropObservationRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().deleteObservation(404L))
+                .isInstanceOf(CropObservationNotFoundException.class)
+                .hasMessageContaining("404");
     }
 }

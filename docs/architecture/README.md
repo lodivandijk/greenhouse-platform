@@ -33,7 +33,8 @@ docs/architecture/
 │   ├── ADR-012-postgresql-only-database.md
 │   ├── ADR-013-graph-as-logical-projection.md
 │   ├── ADR-014-fresh-agent-session-test-boundary.md
-│   └── ADR-015-mcp-java-sdk-not-spring-ai-starter.md
+│   ├── ADR-015-mcp-java-sdk-not-spring-ai-starter.md
+│   └── ADR-016-scoped-delete-capability.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec

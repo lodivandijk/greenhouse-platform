@@ -4,6 +4,7 @@ import com.greenhouse.goal.CreateGoalRequest;
 import com.greenhouse.goal.GoalResponse;
 import com.greenhouse.goal.GoalService;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -62,6 +63,11 @@ public class CropController {
                 request.status(), request.notes(), request.endedAt());
     }
 
+    @DeleteMapping("/{cropId}")
+    public CropResponse deleteCrop(@PathVariable Long cropId) {
+        return cropService.deleteCrop(cropId);
+    }
+
     @GetMapping("/{cropId}/history")
     public CropHistoryResponse getCropHistory(@PathVariable Long cropId) {
         return cropHistoryService.getCropHistory(cropId);
@@ -79,6 +85,11 @@ public class CropController {
         return harvestService.getHarvestHistory(cropId);
     }
 
+    @DeleteMapping("/{cropId}/harvests/{harvestId}")
+    public HarvestResponse deleteHarvest(@PathVariable Long cropId, @PathVariable Long harvestId) {
+        return harvestService.deleteHarvest(harvestId);
+    }
+
     @PostMapping("/{cropId}/observations")
     @ResponseStatus(HttpStatus.CREATED)
     public CropObservationResponse recordObservation(@PathVariable Long cropId, @RequestBody RecordCropObservationRequest request) {
@@ -92,6 +103,11 @@ public class CropController {
         return cropObservationService.getObservationHistory(cropId);
     }
 
+    @DeleteMapping("/{cropId}/observations/{observationId}")
+    public CropObservationResponse deleteObservation(@PathVariable Long cropId, @PathVariable Long observationId) {
+        return cropObservationService.deleteObservation(observationId);
+    }
+
     @PostMapping("/{cropId}/goals")
     @ResponseStatus(HttpStatus.CREATED)
     public GoalResponse createGoal(@PathVariable Long cropId, @RequestBody CreateGoalRequest request) {
@@ -102,5 +118,10 @@ public class CropController {
     @GetMapping("/{cropId}/goals")
     public List<GoalResponse> getGoals(@PathVariable Long cropId) {
         return goalService.listGoalsByCrop(cropId);
+    }
+
+    @DeleteMapping("/{cropId}/goals/{goalId}")
+    public GoalResponse deleteGoal(@PathVariable Long cropId, @PathVariable Long goalId) {
+        return goalService.deleteGoal(goalId);
     }
 }

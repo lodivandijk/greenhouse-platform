@@ -49,4 +49,12 @@ public class HarvestService {
                 .map(cropMapper::toResponse)
                 .toList();
     }
+
+    public HarvestResponse deleteHarvest(Long harvestId) {
+        Harvest harvest = harvestRepository.findById(harvestId)
+                .orElseThrow(() -> new HarvestNotFoundException(harvestId));
+        HarvestResponse response = cropMapper.toResponse(harvest);
+        harvestRepository.delete(harvest);
+        return response;
+    }
 }

@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -100,5 +101,78 @@ class CropControllerTest {
                 .andExpect(jsonPath("$.goals.length()").value(1))
                 .andExpect(jsonPath("$.harvests.length()").value(1))
                 .andExpect(jsonPath("$.observations.length()").value(1));
+    }
+
+    @Test
+    void deleteCrop_emptyCrop_succeedsAndSubsequentGetReturnsNotFound() throws Exception {
+        Long cropId = createCrop();
+
+        mockMvc.perform(delete("/api/v1/crops/" + cropId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(cropId));
+
+        mockMvc.perform(get("/api/v1/crops/" + cropId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deleteCrop_withRecordedHarvest_returnsBadRequestAndDoesNotDelete() throws Exception {
+        Long cropId = createCrop();
+        mockMvc.perform(post("/api/v1/crops/" + cropId + "/harvests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quantity\":50.0,\"unit\":\"GRAMS\"}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(delete("/api/v1/crops/" + cropId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("cannot be deleted")));
+
+        mockMvc.perform(get("/api/v1/crops/" + cropId))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void deleteHarvest_removesJustThatRecord() throws Exception {
+        Long cropId = createCrop();
+        String harvestBody = mockMvc.perform(post("/api/v1/crops/" + cropId + "/harvests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quantity\":50.0,\"unit\":\"GRAMS\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long harvestId = Long.valueOf(harvestBody.replaceAll(".*\"id\":(\\d+).*", "$1"));
+
+        mockMvc.perform(delete("/api/v1/crops/" + cropId + "/harvests/" + harvestId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(harvestId));
+
+        mockMvc.perform(get("/api/v1/crops/" + cropId + "/harvests"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void deleteObservation_unknownId_returnsNotFound() throws Exception {
+        mockMvc.perform(delete("/api/v1/crops/1/observations/999999"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Crop observation not found: 999999"));
+    }
+
+    @Test
+    void deleteGoal_removesJustThatRecord() throws Exception {
+        Long cropId = createCrop();
+        String goalBody = mockMvc.perform(post("/api/v1/crops/" + cropId + "/goals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goalType\":\"MAXIMISE_FOLIAGE\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long goalId = Long.valueOf(goalBody.replaceAll(".*\"id\":(\\d+).*", "$1"));
+
+        mockMvc.perform(delete("/api/v1/crops/" + cropId + "/goals/" + goalId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(goalId));
+
+        mockMvc.perform(get("/api/v1/crops/" + cropId + "/goals"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
     }
 }

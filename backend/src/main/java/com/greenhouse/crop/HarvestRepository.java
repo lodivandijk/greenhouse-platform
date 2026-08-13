@@ -6,4 +6,6 @@ import java.util.List;
 
 public interface HarvestRepository extends JpaRepository<Harvest, Long> {
     List<Harvest> findAllByCropIdOrderByHarvestedAtAsc(Long cropId);
+
+    boolean existsByCropId(Long cropId);
 }

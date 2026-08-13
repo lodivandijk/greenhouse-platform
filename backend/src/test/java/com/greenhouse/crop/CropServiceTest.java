@@ -1,6 +1,7 @@
 package com.greenhouse.crop;
 
 import com.greenhouse.common.DomainValidationException;
+import com.greenhouse.goal.GoalRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -14,6 +15,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,11 +27,21 @@ class CropServiceTest {
     @Mock
     private CropRepository cropRepository;
 
+    @Mock
+    private GoalRepository goalRepository;
+
+    @Mock
+    private HarvestRepository harvestRepository;
+
+    @Mock
+    private CropObservationRepository cropObservationRepository;
+
     private final CropMapper cropMapper = new CropMapper();
     private final Clock fixedClock = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
     private CropService service() {
-        return new CropService(cropRepository, cropMapper, fixedClock);
+        return new CropService(cropRepository, goalRepository, harvestRepository, cropObservationRepository,
+                cropMapper, fixedClock);
     }
 
     @Test
@@ -96,5 +109,86 @@ class CropServiceTest {
         assertThatThrownBy(() -> service().getCrop(42L))
                 .isInstanceOf(CropNotFoundException.class)
                 .hasMessageContaining("42");
+    }
+
+    @Test
+    void deleteCrop_emptyCrop_deletesAndReturnsIt() {
+        Crop crop = new Crop();
+        crop.setId(7L);
+        crop.setSpecies("Basil");
+        crop.setLocationId("planter-02");
+        crop.setStatus(CropStatus.ESTABLISHING);
+        crop.setCreatedAt(FIXED_NOW);
+        crop.setUpdatedAt(FIXED_NOW);
+
+        when(cropRepository.findById(7L)).thenReturn(Optional.of(crop));
+        when(goalRepository.existsByCropId(7L)).thenReturn(false);
+        when(harvestRepository.existsByCropId(7L)).thenReturn(false);
+        when(cropObservationRepository.existsByCropId(7L)).thenReturn(false);
+
+        CropResponse response = service().deleteCrop(7L);
+
+        assertThat(response.id()).isEqualTo(7L);
+        verify(cropRepository).delete(crop);
+    }
+
+    @Test
+    void deleteCrop_withGoals_throwsValidationExceptionAndDoesNotDelete() {
+        Crop crop = new Crop();
+        crop.setId(8L);
+        crop.setSpecies("Basil");
+        crop.setLocationId("planter-02");
+        crop.setStatus(CropStatus.PRODUCTIVE);
+
+        when(cropRepository.findById(8L)).thenReturn(Optional.of(crop));
+        when(goalRepository.existsByCropId(8L)).thenReturn(true);
+        lenient().when(harvestRepository.existsByCropId(8L)).thenReturn(false);
+        lenient().when(cropObservationRepository.existsByCropId(8L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service().deleteCrop(8L))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("8");
+    }
+
+    @Test
+    void deleteCrop_withHarvests_throwsValidationException() {
+        Crop crop = new Crop();
+        crop.setId(9L);
+        crop.setSpecies("Basil");
+        crop.setLocationId("planter-02");
+        crop.setStatus(CropStatus.PRODUCTIVE);
+
+        when(cropRepository.findById(9L)).thenReturn(Optional.of(crop));
+        lenient().when(goalRepository.existsByCropId(9L)).thenReturn(false);
+        when(harvestRepository.existsByCropId(9L)).thenReturn(true);
+        lenient().when(cropObservationRepository.existsByCropId(9L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service().deleteCrop(9L))
+                .isInstanceOf(DomainValidationException.class);
+    }
+
+    @Test
+    void deleteCrop_withObservations_throwsValidationException() {
+        Crop crop = new Crop();
+        crop.setId(10L);
+        crop.setSpecies("Basil");
+        crop.setLocationId("planter-02");
+        crop.setStatus(CropStatus.PRODUCTIVE);
+
+        when(cropRepository.findById(10L)).thenReturn(Optional.of(crop));
+        lenient().when(goalRepository.existsByCropId(10L)).thenReturn(false);
+        lenient().when(harvestRepository.existsByCropId(10L)).thenReturn(false);
+        when(cropObservationRepository.existsByCropId(10L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service().deleteCrop(10L))
+                .isInstanceOf(DomainValidationException.class);
+    }
+
+    @Test
+    void deleteCrop_unknownCrop_throwsNotFound() {
+        when(cropRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().deleteCrop(404L))
+                .isInstanceOf(CropNotFoundException.class);
     }
 }

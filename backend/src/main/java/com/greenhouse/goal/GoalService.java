@@ -72,4 +72,11 @@ public class GoalService {
                 .map(goalMapper::toResponse)
                 .toList();
     }
+
+    public GoalResponse deleteGoal(Long goalId) {
+        Goal goal = goalRepository.findById(goalId).orElseThrow(() -> new GoalNotFoundException(goalId));
+        GoalResponse response = goalMapper.toResponse(goal);
+        goalRepository.delete(goal);
+        return response;
+    }
 }

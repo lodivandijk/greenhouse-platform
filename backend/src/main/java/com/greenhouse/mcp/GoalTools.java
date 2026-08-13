@@ -74,4 +74,24 @@ public class GoalTools {
                 }))
                 .build();
     }
+
+    @Bean
+    public McpServerFeatures.SyncToolSpecification deleteGoalTool() {
+        McpSchema.Tool tool = McpSchema.Tool.builder()
+                .name("delete_goal")
+                .description("Permanently deletes a single goal record - use this to correct a goal that was "
+                        + "recorded in error. To simply stop pursuing a goal without erasing that it existed, "
+                        + "prefer leaving it as-is or discussing changing its status instead; there is no "
+                        + "update_goal tool yet.")
+                .inputSchema(mcpJsonMapper, "{\"type\":\"object\",\"properties\":{"
+                        + "\"goalId\":{\"type\":\"integer\",\"description\":\"The numeric id of the goal to delete, from list_goals.\"}"
+                        + "},\"required\":[\"goalId\"]}")
+                .build();
+
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(tool)
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                        goalService.deleteGoal(McpToolSupport.requireLong(request.arguments(), "goalId"))))
+                .build();
+    }
 }

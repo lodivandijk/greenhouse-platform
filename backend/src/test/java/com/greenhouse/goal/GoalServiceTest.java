@@ -11,10 +11,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -88,5 +90,30 @@ class GoalServiceTest {
 
         assertThatThrownBy(() -> service().createGoal(1L, null, null, null, null))
                 .isInstanceOf(DomainValidationException.class);
+    }
+
+    @Test
+    void deleteGoal_existingGoal_deletesAndReturnsIt() {
+        Goal goal = new Goal();
+        goal.setId(3L);
+        goal.setCropId(1L);
+        goal.setGoalType(GoalType.MAXIMISE_FOLIAGE);
+        goal.setStatus(GoalStatus.ACTIVE);
+
+        when(goalRepository.findById(3L)).thenReturn(Optional.of(goal));
+
+        GoalResponse response = service().deleteGoal(3L);
+
+        assertThat(response.id()).isEqualTo(3L);
+        verify(goalRepository).delete(goal);
+    }
+
+    @Test
+    void deleteGoal_unknownGoal_throwsNotFound() {
+        when(goalRepository.findById(404L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().deleteGoal(404L))
+                .isInstanceOf(GoalNotFoundException.class)
+                .hasMessageContaining("404");
     }
 }

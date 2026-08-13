@@ -83,6 +83,17 @@ record_harvest
 record_crop_observation
 ```
 
+**Delete:**
+
+```
+delete_crop               (only works if the crop has no goals/harvests/observations)
+delete_goal
+delete_harvest
+delete_crop_observation
+```
+
+`delete_crop` will refuse and explain why if the crop has any recorded history — a real crop is retired via `update_crop` (`status: ENDED`), not deleted. The other three delete a single record outright, with no undo.
+
 If some tools are missing, the Pi may be running an older build than this document — check `docs/architecture/CURRENT_ARCHITECTURE.md` §8 for the current authoritative list, or ask whoever deploys this repository to redeploy.
 
 ## Common failure modes
