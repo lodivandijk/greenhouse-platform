@@ -1,6 +1,8 @@
 package com.greenhouse.common;
 
+import com.greenhouse.crop.CropNotFoundException;
 import com.greenhouse.device.DeviceNotFoundException;
+import com.greenhouse.goal.GoalNotFoundException;
 import com.greenhouse.observation.ObservationNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -29,6 +31,36 @@ public class ApiExceptionHandler {
                 exception.getMessage()
         );
         problem.setTitle("Observation not found");
+        return problem;
+    }
+
+    @ExceptionHandler(CropNotFoundException.class)
+    ProblemDetail handleCropNotFound(CropNotFoundException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
+        problem.setTitle("Crop not found");
+        return problem;
+    }
+
+    @ExceptionHandler(GoalNotFoundException.class)
+    ProblemDetail handleGoalNotFound(GoalNotFoundException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
+        problem.setTitle("Goal not found");
+        return problem;
+    }
+
+    @ExceptionHandler(DomainValidationException.class)
+    ProblemDetail handleDomainValidation(DomainValidationException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
+                exception.getMessage()
+        );
+        problem.setTitle("Invalid request");
         return problem;
     }
 
