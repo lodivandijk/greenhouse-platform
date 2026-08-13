@@ -8,7 +8,7 @@ For exact implementation details, the source code and tests remain authoritative
 
 ## 1. Purpose
 
-A monitoring platform for a home greenhouse: an ESP32 sensor node reports environmental readings and connectivity heartbeats to a Spring Boot backend, which persists them, derives current state, evaluates that state against configured operating limits, and presents the result on a read-only dashboard. The system is currently **observational, not autonomous** — there is no path back from software into the physical greenhouse.
+A monitoring platform for a home greenhouse: an ESP32 sensor node reports environmental readings and connectivity heartbeats to a Spring Boot backend, which persists them, derives current state, evaluates that state against configured operating limits, and presents the result on a read-only dashboard. The backend also persists crop-level knowledge (what's being grown, goals, harvests, manual observations) and exposes both machine state and crop knowledge to AI clients over MCP. The system is currently **observational, not autonomous** — there is no path back from software into the physical greenhouse; MCP write tools record what a human reports, they do not control anything.
 
 ```
 SENSE → STORE → MODEL → ASSESS → DISPLAY
@@ -47,6 +47,9 @@ com.greenhouse.twin          Digital Twin — current factual state, assembled p
 com.greenhouse.assessment    Assessment Engine — interpretation, persisted lifecycle
 com.greenhouse.evaluation    Scheduler + coordinator orchestrating twin → assessment
 com.greenhouse.state         Composed read model (twin + active assessments)
+com.greenhouse.crop          Crop, Harvest, CropObservation — biological/semantic evidence (persisted)
+com.greenhouse.goal          Goal — user intent for a crop, not executable control (persisted)
+com.greenhouse.mcp           MCP server + tools — the agent capability boundary
 com.greenhouse.common        Cross-cutting (API exception handling)
 static/                      Read-only UI (served by Spring Boot's default static handling)
 ```
@@ -70,6 +73,8 @@ UI                     "What does the user need to see?"
 The Digital Twin (`com.greenhouse.twin`) contains **no** environmental judgement — no thresholds, no severity, no "too hot"/"too cold". It reports facts only: readings, device connectivity (`ONLINE`/`DELAYED`/`OFFLINE`/`UNKNOWN`), and data freshness (`CURRENT`/`DELAYED`/`STALE`/`UNKNOWN`), all derived from configured timing thresholds, not judgement about whether that timing is acceptable. `TwinStatus` (`NORMAL`/`OFFLINE`/`UNKNOWN`) is derived purely from device connectivity.
 
 All environmental interpretation — limit breaches, staleness-as-a-problem, offline-as-a-problem — lives exclusively in `com.greenhouse.assessment`.
+
+`com.greenhouse.crop` and `com.greenhouse.goal` are a parallel, deliberately separate domain: biological/semantic evidence about specific crops (health, flowering, harvests, user-stated goals), reported by a human via MCP or REST, not derived from sensors. `com.greenhouse.crop.CropObservation` and `com.greenhouse.observation.ObservationStatus` are unrelated types that happen to share the word "observation" — see ADR-009 for why that overlap was accepted rather than renamed.
 
 ## 4. Data flow
 
@@ -100,11 +105,17 @@ Two independent triggers read/write this pipeline:
 
 ## 5. Persistence
 
-PostgreSQL, three tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
+PostgreSQL, seven tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
 
 - **`observation`** (V1) — append-only log. One row per accepted reading: `device_id`, `temperature_celsius`, `humidity_percent`, `pressure_hpa`, `received_at`. Rows are never updated or deleted by the ingestion path. No foreign key to `device` (ingestion must keep working even if a device record is temporarily missing).
 - **`device`** (V2) — one mutable row per device, natural key (`device_id`, no surrogate id): `software_version`, `first_seen_at`, `last_seen_at`, `last_ip_address`, `last_signal_strength_dbm`, `last_uptime_seconds`, `heartbeat_count`, `enabled`, `updated_at`. `online` is never stored — always derived at read time from `last_seen_at`.
 - **`assessment`** (V3) — lifecycle-tracked. `correlation_key`, `greenhouse_id`/`zone_id`/`device_id`, `scope_type`/`scope_id`, `code`, `severity`, `status`, `message`, `evidence_json` (JSONB), `rule_id`/`rule_version`, `first_detected_at`/`last_detected_at`/`last_evaluated_at`/`resolved_at`. A **partial unique index** — `UNIQUE (correlation_key) WHERE status = 'ACTIVE'` — enforces at most one active record per logical condition at the database level while still allowing historical recurrence.
+- **`crop`** (V4) — one row per crop: `species`, `variety`, `location_id` (an unvalidated string, e.g. `planter-02`), `planted_at`, `ended_at`, `status` (`PLANNED`/`ESTABLISHING`/`PRODUCTIVE`/`DECLINING`/`ENDED`), `notes`. Surrogate `id`, unlike `device`.
+- **`goal`** (V5) — `crop_id` (FK), `goal_type` (enum + `OTHER`), `description`, `status` (`ACTIVE`/`COMPLETED`/`CANCELLED`), `priority`, `source_instruction` (the user's own words), `metadata_json` (JSONB).
+- **`harvest`** (V6) — `crop_id` (FK), `harvested_at`, `quantity` + `unit` (`GRAMS`/`KILOGRAMS`/`COUNT` — always paired, never a bare number), `notes`.
+- **`crop_observation`** (V7) — `crop_id` (FK), `metric` (enum + `OTHER`), `value_type` (`NUMERIC`/`TEXT`/`BOOLEAN`) discriminating exactly one of `numeric_value`/`text_value`/`boolean_value`, `unit`, `source` (`HUMAN`/`AI_DERIVED`/`DERIVED`/`EXTERNAL`), `confidence`, `observed_at`, `notes`, `metadata_json` (JSONB).
+
+`goal`, `harvest`, and `crop_observation` all have real foreign keys to `crop(id)` — unlike `observation`/`device`, they're only ever written through validated domain services, never raw ingestion, so the FK-avoidance rationale doesn't apply (see ADR-009).
 
 ## 6. APIs
 
@@ -122,10 +133,20 @@ All under the same origin as the UI (`http://<host>:8080`), no CORS configuratio
 | `GET` | `/api/v1/twin` | Current facts-only Digital Twin |
 | `GET` | `/api/v1/assessments?status=` | Active (default) or resolved assessments |
 | `GET` | `/api/v1/state` | Composed twin + active assessments (read-only, no reconciliation side effect) |
+| `POST` | `/api/v1/crops` | Create a crop |
+| `GET` | `/api/v1/crops`, `/api/v1/crops/{cropId}` | List / get a crop |
+| `PATCH` | `/api/v1/crops/{cropId}` | Update a crop (partial) |
+| `GET` | `/api/v1/crops/{cropId}/history` | Crop + goals + harvests + observations, composed |
+| `POST`/`GET` | `/api/v1/crops/{cropId}/harvests` | Record / list harvests |
+| `POST`/`GET` | `/api/v1/crops/{cropId}/observations` | Record / list crop observations |
+| `POST`/`GET` | `/api/v1/crops/{cropId}/goals` | Create / list goals |
+| `POST` | `/mcp` | MCP Streamable HTTP endpoint (bearer-token authenticated) — see §8 |
 | `GET` | `/` | Read-only dashboard (static HTML/CSS/JS) |
 | `GET` | `/actuator/health`, `/actuator/info` | Operational health (`info` currently returns `{}` — the env info contributor isn't populated) |
 
 The `/api/*` paths without `/v1/` are earlier, still-supported aliases for the heartbeat/observation/device endpoints; new integrations should use the `/v1/` forms.
+
+REST and MCP tools both call the same domain services directly (`CropService`, `GoalService`, `HarvestService`, `CropObservationService`) — neither is layered through the other.
 
 ## 7. Runtime behaviour
 
@@ -134,16 +155,30 @@ The `/api/*` paths without `/v1/` are earlier, still-supported aliases for the h
 - The four assessment rules (`temperature-operating-limit`, `humidity-operating-limit`, `observation-freshness` — code `OBSERVATION_STALE`, and `device-availability` — code `DEVICE_OFFLINE`) are stateless and evaluate independently; the reconciler is what gives the results statefulness. Severity: environmental limit breaches and staleness are `WARNING`; device offline is `CRITICAL`. A device that has never reported (`UNKNOWN`) does not raise `DEVICE_OFFLINE` — only a previously-seen device going quiet does.
 - Assessment list responses are sorted by severity rank in application code (`AssessmentQueryService`), not via a JPA-derived `ORDER BY` — `AssessmentSeverity` is `EnumType.STRING`, so a raw column sort would be alphabetical rather than by actual severity.
 
-## 8. UI
+## 8. MCP agent interface
+
+An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Ten tools are exposed:
+
+```
+Read:  get_greenhouse_state, list_crops, get_crop, get_crop_history, list_goals
+Write: create_crop, update_crop, create_goal, record_harvest, record_crop_observation
+```
+
+Every tool calls a domain service directly (never a repository directly, never REST), validates its input, and maps known domain errors (`CropNotFoundException`, `GoalNotFoundException`, `DomainValidationException`) to a clean text message rather than a raw exception (`McpToolSupport`). No tool executes SQL, shell commands, or file access.
+
+**Authentication**: a bearer-token servlet filter (`McpAuthenticationFilter`) guards every request under `/mcp`; every other endpoint is unaffected. The token is supplied via `GREENHOUSE_MCP_AUTH_TOKEN` (same environment-variable-backed pattern as the database password). If unset, every `/mcp` request is rejected — the filter fails closed, never open. Full client setup: `docs/mcp/AGENT_SETUP.md`. Implementation detail: `docs/mcp/IMPLEMENTATION.md`.
+
+## 9. UI
 
 Single-page, read-only dashboard at `GET /`, served from `backend/src/main/resources/static/` (no separate frontend service, no build step, no framework, no third-party JS). Polls `GET /api/v1/state` every 20 seconds, pauses while the browser tab is hidden, supports manual refresh. Distinguishes API-unreachable from device-offline from twin-unknown, and retains last-known data (marked stale) rather than erasing it on a failed poll. Renders the primary zone/device (`zones[0]`) from the twin response. Full detail: `docs/ui/ui-v1.md`.
 
-## 9. Known limitations
+## 10. Known limitations
 
-- **No control loop.** The platform senses, stores, models, assesses, and displays — it does not act on the physical greenhouse. See `ARCHITECTURE_PARADIGM.md` for the intended future direction.
+- **No control loop.** The platform senses, stores, models, assesses, and displays — it does not act on the physical greenhouse. MCP write tools record what a human reports; they do not control anything. See `ARCHITECTURE_PARADIGM.md` for the intended future direction.
 - **Single zone / single device in practice.** The data model supports multiple zones and devices; the deployed configuration and the UI's "primary zone" rendering do not yet exercise that.
 - **Topology is YAML, not persisted.** Adding a zone or device means editing `application.yml` and redeploying, not an API call.
 - **No retention policy on `observation`.** The table grows unboundedly; no rollup or archival exists yet.
 - **1-minute assessment evaluation cadence.** Real conditions can be up to ~1 minute stale in assessment terms even when the twin itself is current.
-- **No authentication anywhere.** Access control is entirely at the network layer (Tailscale). Acceptable for a single-user home deployment; would need revisiting before any multi-user or public exposure.
-- **Local dev and the Pi have independently-managed database credentials** (not shared, not centrally rotated).
+- **No authentication on REST or the UI** — only `/mcp` requires a bearer token. Access control for everything else is entirely at the network layer (Tailscale). Acceptable for a single-user home deployment; would need revisiting before any multi-user or public exposure.
+- **No delete/end-of-life tools for crop data.** A crop is marked `ENDED` via `update_crop`, never deleted; there is no way to remove a mistaken crop, goal, harvest, or observation short of direct database access.
+- **Local dev and the Pi have independently-managed database credentials and MCP auth tokens** (not shared, not centrally rotated).
