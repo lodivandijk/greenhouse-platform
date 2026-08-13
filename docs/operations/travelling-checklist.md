@@ -66,7 +66,7 @@ Full detail on all of the above lives in `raspberry-pi-runbook.md`,
 
 ## What happens if you can't reach the Pi at all
 
-Per `docs/architecture/remote-pi.md` section 10 (Failure Scenarios): the
+Per `docs/architecture/legacy/remote-pi.md` section 10 (Failure Scenarios): the
 greenhouse keeps running independently of remote access. PostgreSQL,
 the Spring Boot app, and the ESP32 all continue operating on the home
 network with no dependency on Tailscale, the internet, or you. Losing

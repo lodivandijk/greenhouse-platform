@@ -154,5 +154,5 @@ The Pi's `tailscaled` service is enabled and starts on boot, so this should
 self-heal after any reboot or power cycle within a home network. If it
 persists, the Pi's home internet connection is likely down — the greenhouse
 itself keeps running independently (see `10. Failure Scenarios` in
-`docs/architecture/remote-pi.md`), you just can't reach it remotely until
+`docs/architecture/legacy/remote-pi.md`), you just can't reach it remotely until
 connectivity returns.

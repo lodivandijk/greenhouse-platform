@@ -2,50 +2,35 @@
 
 ## Purpose
 
-This section describes the architecture of the Greenhouse Platform.
+This section describes the architecture of the Greenhouse Platform, using the model defined in [`ARCHITECTURE_PARADIGM.md`](ARCHITECTURE_PARADIGM.md):
 
-The Architecture Decision Records explain **why** major strategic choices were made. These documents explain **what the resulting system looks like**, how the main components interact, and where responsibilities sit.
+- **[`CURRENT_ARCHITECTURE.md`](CURRENT_ARCHITECTURE.md)** — what the deployed system looks like right now. Authoritative for current reality; read this first.
+- **[`decisions/`](decisions/)** — Architecture Decision Records (ADRs) explaining *why* the system looks the way it does. Historical records — once accepted, an ADR is never rewritten, only superseded by a new one.
+- **[`legacy/`](legacy/)** — earlier architecture documents, superseded by the two above. Kept for point-in-time detail and historical rationale; not authoritative, and some of it now contradicts the current implementation.
+- **[`ARCHITECTURE_PARADIGM.md`](ARCHITECTURE_PARADIGM.md)** — the documentation model itself, plus the platform's longer-term direction (objective-driven reasoning, decisions, actions). That direction is exploratory, not yet implemented — see the paradigm doc's own "Current vs Future" distinction before treating any of it as existing behaviour.
 
-The architecture is expected to evolve as the platform moves through four broad stages:
-
-1. A single ESP32 node sending heartbeats.
-2. Environmental sensing and historical data collection.
-3. Automated control of irrigation and greenhouse conditions.
-4. A broader Controlled Environment Agriculture platform supporting multiple growing environments.
-
-The architecture must therefore support the initial domestic greenhouse without becoming tied to that deployment.
+Implementation specs for individual milestones (`digital-twin-v1-spec.md`, `assessment-engine-v1-spec.md`, `ui-v1-spec.md`) remain at the top level of this directory — they're point-in-time acceptance-criteria documents that informed the ADRs, not architecture descriptions themselves.
 
 ## Documents
 
 ```text
 docs/architecture/
-├── README.md
-├── system-context.md
-├── container-architecture.md
-├── component-architecture.md
-├── deployment-architecture.md
-├── data-flow.md
-├── digital-twin-architecture.md
-├── domain-model.md
-└── architecture-roadmap.md
+├── README.md                        (this file)
+├── ARCHITECTURE_PARADIGM.md          the documentation model + future direction
+├── CURRENT_ARCHITECTURE.md           what's implemented and deployed now
+├── decisions/                        ADRs — why it looks like this
+│   ├── ADR-001-persist-observations.md
+│   ├── ADR-002-introduce-digital-twin.md
+│   ├── ADR-003-twin-facts-only.md
+│   ├── ADR-004-separate-assessment-engine.md
+│   ├── ADR-005-compose-application-state.md
+│   └── ADR-006-vanilla-static-ui.md
+├── legacy/                           superseded documents, kept for history
+├── digital-twin-v1-spec.md           milestone spec
+├── assessment-engine-v1-spec.md      milestone spec
+└── ui-v1-spec.md                     milestone spec
 ```
 
-## Architectural Summary
+## Development rule
 
-The Greenhouse Platform is a local-first, distributed Controlled Environment Agriculture platform.
-
-ESP32 edge nodes measure and act.
-
-The Spring Boot platform receives observations, owns operational state and coordinates behaviour.
-
-The Digital Twin provides the authoritative representation of the greenhouse.
-
-Historical observations provide evidence.
-
-Automation operates through defined and explainable policies.
-
-AI reasons over the Digital Twin rather than communicating directly with hardware.
-
-The Raspberry Pi hosts the first deployment, while the software remains portable to larger environments.
-
-The architecture intentionally starts with a simple heartbeat but is designed to support the gradual addition of sensors, crops, irrigation, automation, intelligence and commercial operation.
+Before making a material architectural change: read `CURRENT_ARCHITECTURE.md`, identify the domain boundary being touched, check `decisions/` for relevant prior ADRs, and — if the change is itself an architectural decision rather than an implementation detail — write a new ADR before or alongside implementing it. Update `CURRENT_ARCHITECTURE.md` only once the implementation actually reflects the new reality. Full detail in `ARCHITECTURE_PARADIGM.md` §18.
