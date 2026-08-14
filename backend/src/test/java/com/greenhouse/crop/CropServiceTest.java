@@ -1,5 +1,6 @@
 package com.greenhouse.crop;
 
+import com.greenhouse.action.ActionRepository;
 import com.greenhouse.common.DomainValidationException;
 import com.greenhouse.goal.GoalRepository;
 import org.junit.jupiter.api.Test;
@@ -36,12 +37,15 @@ class CropServiceTest {
     @Mock
     private CropObservationRepository cropObservationRepository;
 
+    @Mock
+    private ActionRepository actionRepository;
+
     private final CropMapper cropMapper = new CropMapper();
     private final Clock fixedClock = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
     private CropService service() {
         return new CropService(cropRepository, goalRepository, harvestRepository, cropObservationRepository,
-                cropMapper, fixedClock);
+                actionRepository, cropMapper, fixedClock);
     }
 
     @Test
@@ -125,6 +129,7 @@ class CropServiceTest {
         when(goalRepository.existsByCropId(7L)).thenReturn(false);
         when(harvestRepository.existsByCropId(7L)).thenReturn(false);
         when(cropObservationRepository.existsByCropId(7L)).thenReturn(false);
+        when(actionRepository.existsByCropId(7L)).thenReturn(false);
 
         CropResponse response = service().deleteCrop(7L);
 
@@ -144,6 +149,7 @@ class CropServiceTest {
         when(goalRepository.existsByCropId(8L)).thenReturn(true);
         lenient().when(harvestRepository.existsByCropId(8L)).thenReturn(false);
         lenient().when(cropObservationRepository.existsByCropId(8L)).thenReturn(false);
+        lenient().when(actionRepository.existsByCropId(8L)).thenReturn(false);
 
         assertThatThrownBy(() -> service().deleteCrop(8L))
                 .isInstanceOf(DomainValidationException.class)
@@ -162,6 +168,7 @@ class CropServiceTest {
         lenient().when(goalRepository.existsByCropId(9L)).thenReturn(false);
         when(harvestRepository.existsByCropId(9L)).thenReturn(true);
         lenient().when(cropObservationRepository.existsByCropId(9L)).thenReturn(false);
+        lenient().when(actionRepository.existsByCropId(9L)).thenReturn(false);
 
         assertThatThrownBy(() -> service().deleteCrop(9L))
                 .isInstanceOf(DomainValidationException.class);
@@ -179,9 +186,29 @@ class CropServiceTest {
         lenient().when(goalRepository.existsByCropId(10L)).thenReturn(false);
         lenient().when(harvestRepository.existsByCropId(10L)).thenReturn(false);
         when(cropObservationRepository.existsByCropId(10L)).thenReturn(true);
+        lenient().when(actionRepository.existsByCropId(10L)).thenReturn(false);
 
         assertThatThrownBy(() -> service().deleteCrop(10L))
                 .isInstanceOf(DomainValidationException.class);
+    }
+
+    @Test
+    void deleteCrop_withActions_throwsValidationException() {
+        Crop crop = new Crop();
+        crop.setId(11L);
+        crop.setSpecies("Strawberry");
+        crop.setLocationId("pot-2");
+        crop.setStatus(CropStatus.PRODUCTIVE);
+
+        when(cropRepository.findById(11L)).thenReturn(Optional.of(crop));
+        lenient().when(goalRepository.existsByCropId(11L)).thenReturn(false);
+        lenient().when(harvestRepository.existsByCropId(11L)).thenReturn(false);
+        lenient().when(cropObservationRepository.existsByCropId(11L)).thenReturn(false);
+        when(actionRepository.existsByCropId(11L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service().deleteCrop(11L))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("11");
     }
 
     @Test

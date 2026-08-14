@@ -13,4 +13,6 @@ public interface ActionRepository extends JpaRepository<Action, Long> {
     List<Action> findAllByCropIdOrderByPerformedAtDesc(Long cropId);
 
     List<Action> findAllByCropIdAndPerformedAtAfterOrderByPerformedAtDesc(Long cropId, Instant since);
+
+    boolean existsByCropId(Long cropId);
 }
