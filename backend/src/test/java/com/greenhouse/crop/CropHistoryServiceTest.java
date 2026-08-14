@@ -1,5 +1,9 @@
 package com.greenhouse.crop;
 
+import com.greenhouse.action.ActionPerformedBy;
+import com.greenhouse.action.ActionResponse;
+import com.greenhouse.action.ActionService;
+import com.greenhouse.action.ActionType;
 import com.greenhouse.goal.GoalResponse;
 import com.greenhouse.goal.GoalService;
 import com.greenhouse.goal.GoalStatus;
@@ -27,21 +31,26 @@ class CropHistoryServiceTest {
     private GoalService goalService;
 
     @Mock
+    private ActionService actionService;
+
+    @Mock
     private HarvestService harvestService;
 
     @Mock
     private CropObservationService cropObservationService;
 
     private CropHistoryService service() {
-        return new CropHistoryService(cropService, goalService, harvestService, cropObservationService);
+        return new CropHistoryService(cropService, goalService, actionService, harvestService, cropObservationService);
     }
 
     @Test
-    void getCropHistory_combinesAllFourSources() {
+    void getCropHistory_combinesAllFiveSources() {
         CropResponse crop = new CropResponse(1L, "Basil", "Genovese", "planter-02",
                 FIXED_NOW, null, CropStatus.PRODUCTIVE, null, FIXED_NOW, FIXED_NOW);
         GoalResponse goal = new GoalResponse(1L, 1L, GoalType.MAXIMISE_FOLIAGE, null,
                 GoalStatus.ACTIVE, null, "grow foliage", null, FIXED_NOW, FIXED_NOW);
+        ActionResponse action = new ActionResponse(1L, 1L, ActionType.WATER, null, 100.0, "ml",
+                FIXED_NOW, ActionPerformedBy.HUMAN, FIXED_NOW);
         HarvestResponse harvest = new HarvestResponse(1L, 1L, FIXED_NOW, 100.0, HarvestUnit.GRAMS, null, FIXED_NOW);
         CropObservationResponse observation = new CropObservationResponse(1L, 1L,
                 CropObservationMetric.PLANT_HEALTH, CropObservationValueType.TEXT, null, "healthy", null,
@@ -49,6 +58,7 @@ class CropHistoryServiceTest {
 
         when(cropService.getCrop(1L)).thenReturn(crop);
         when(goalService.listGoalsByCrop(1L)).thenReturn(List.of(goal));
+        when(actionService.listActions(1L, null, null)).thenReturn(List.of(action));
         when(harvestService.getHarvestHistory(1L)).thenReturn(List.of(harvest));
         when(cropObservationService.getObservationHistory(1L)).thenReturn(List.of(observation));
 
@@ -56,6 +66,7 @@ class CropHistoryServiceTest {
 
         assertThat(history.crop()).isEqualTo(crop);
         assertThat(history.goals()).containsExactly(goal);
+        assertThat(history.actions()).containsExactly(action);
         assertThat(history.harvests()).containsExactly(harvest);
         assertThat(history.observations()).containsExactly(observation);
     }

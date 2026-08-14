@@ -1,5 +1,6 @@
 package com.greenhouse.mcp;
 
+import com.greenhouse.action.ActionRepository;
 import com.greenhouse.crop.CropRepository;
 import com.greenhouse.crop.HarvestRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -45,10 +46,16 @@ class McpServerIntegrationTest {
     @Autowired
     private HarvestRepository harvestRepository;
 
+    @Autowired
+    private ActionRepository actionRepository;
+
     private final List<Long> createdCropIds = new ArrayList<>();
 
     @AfterEach
     void cleanUpCreatedCrops() {
+        for (Long cropId : createdCropIds) {
+            actionRepository.deleteAll(actionRepository.findAllByCropIdOrderByPerformedAtDesc(cropId));
+        }
         cropRepository.deleteAllById(createdCropIds);
         createdCropIds.clear();
     }
@@ -87,7 +94,8 @@ class McpServerIntegrationTest {
         assertThat(toolNames).contains(
                 "get_greenhouse_state", "list_crops", "get_crop", "get_crop_history", "list_goals",
                 "create_crop", "update_crop", "create_goal", "record_harvest", "record_crop_observation",
-                "delete_crop", "delete_goal", "delete_harvest", "delete_crop_observation"
+                "delete_crop", "delete_goal", "delete_harvest", "delete_crop_observation",
+                "record_action", "list_actions"
         );
 
         JsonNode getCropTool = StreamSupport.stream(tools.spliterator(), false)
@@ -223,5 +231,72 @@ class McpServerIntegrationTest {
 
         // Clean up the harvest directly so the crop can be cleaned up normally in @AfterEach.
         harvestRepository.deleteAll(harvestRepository.findAllByCropIdOrderByHarvestedAtAsc(cropId));
+    }
+
+    @Test
+    void toolCall_recordActionThenListActions_roundTripsThroughRealDomainService() throws Exception {
+        String sessionId = initializeSession();
+
+        HttpResponse<String> createResponse = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "create_crop", Map.of(
+                        "species", "Strawberry-action-test", "location", "pot-2"
+                )));
+        JsonNode createBody = McpTestSupport.parseJsonRpcBody(jsonMapper, createResponse.body());
+        long cropId = jsonMapper.readTree(createBody.path("result").path("content").get(0).path("text").asString())
+                .path("id").asLong();
+        createdCropIds.add(cropId);
+
+        HttpResponse<String> actionResponse = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "record_action", Map.of(
+                        "cropId", cropId, "type", "WATER", "quantity", 100.0, "unit", "ml"
+                )));
+        JsonNode actionBody = McpTestSupport.parseJsonRpcBody(jsonMapper, actionResponse.body());
+        assertThat(actionBody.path("result").path("isError").asBoolean(false)).isFalse();
+        String actionText = actionBody.path("result").path("content").get(0).path("text").asString();
+        assertThat(actionText).contains("\"type\":\"WATER\"");
+        assertThat(actionText).contains("\"performedBy\":\"HUMAN\"");
+
+        HttpResponse<String> listResponse = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "list_actions", Map.of("cropId", cropId)));
+        JsonNode listBody = McpTestSupport.parseJsonRpcBody(jsonMapper, listResponse.body());
+        String listedText = listBody.path("result").path("content").get(0).path("text").asString();
+
+        assertThat(listedText).contains("\"type\":\"WATER\"");
+        assertThat(listedText).contains("\"cropId\":" + cropId);
+    }
+
+    // This is the milestone's actual Definition of Done, proven directly rather than assumed:
+    // an action recorded in one MCP session must be retrievable from a completely separate
+    // session (its own initialize handshake, its own session id) - proving persistence lives
+    // in PostgreSQL, not in any conversation state.
+    @Test
+    void action_recordedInOneSession_isRetrievableFromABrandNewSession() throws Exception {
+        String firstSessionId = initializeSession();
+
+        HttpResponse<String> createResponse = McpTestSupport.post(baseUrl(), TOKEN, firstSessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "create_crop", Map.of(
+                        "species", "Strawberry-cross-session-test", "location", "pot-3"
+                )));
+        JsonNode createBody = McpTestSupport.parseJsonRpcBody(jsonMapper, createResponse.body());
+        long cropId = jsonMapper.readTree(createBody.path("result").path("content").get(0).path("text").asString())
+                .path("id").asLong();
+        createdCropIds.add(cropId);
+
+        McpTestSupport.post(baseUrl(), TOKEN, firstSessionId, McpTestSupport.toolsCallRequestBody(
+                jsonMapper, "record_action", Map.of(
+                        "cropId", cropId, "type", "WATER", "quantity", 100.0, "unit", "ml"
+                )));
+
+        // A brand new session - no relationship to the one that recorded the action above.
+        String secondSessionId = initializeSession();
+        assertThat(secondSessionId).isNotEqualTo(firstSessionId);
+
+        HttpResponse<String> listResponse = McpTestSupport.post(baseUrl(), TOKEN, secondSessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "list_actions", Map.of("cropId", cropId)));
+        JsonNode listBody = McpTestSupport.parseJsonRpcBody(jsonMapper, listResponse.body());
+        String listedText = listBody.path("result").path("content").get(0).path("text").asString();
+
+        assertThat(listedText).contains("\"type\":\"WATER\"");
+        assertThat(listedText).contains("\"unit\":\"ml\"");
     }
 }

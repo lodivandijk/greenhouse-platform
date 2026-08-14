@@ -1,5 +1,6 @@
 package com.greenhouse.common;
 
+import com.greenhouse.action.ActionNotFoundException;
 import com.greenhouse.crop.CropNotFoundException;
 import com.greenhouse.crop.CropObservationNotFoundException;
 import com.greenhouse.crop.HarvestNotFoundException;
@@ -73,6 +74,16 @@ public class ApiExceptionHandler {
                 exception.getMessage()
         );
         problem.setTitle("Crop observation not found");
+        return problem;
+    }
+
+    @ExceptionHandler(ActionNotFoundException.class)
+    ProblemDetail handleActionNotFound(ActionNotFoundException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
+        problem.setTitle("Action not found");
         return problem;
     }
 

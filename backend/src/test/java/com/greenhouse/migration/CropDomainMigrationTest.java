@@ -56,8 +56,16 @@ class CropDomainMigrationTest {
     }
 
     @Test
-    void flywayMigrationsV4ThroughV7AppliedSuccessfully() {
-        for (String version : List.of("4", "5", "6", "7")) {
+    void actionTableHasExpectedColumns() {
+        assertThat(columnsOf("action")).contains(
+                "id", "crop_id", "type", "description", "quantity", "unit",
+                "performed_at", "performed_by", "created_at"
+        );
+    }
+
+    @Test
+    void flywayMigrationsV4ThroughV8AppliedSuccessfully() {
+        for (String version : List.of("4", "5", "6", "7", "8")) {
             Integer successCount = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM flyway_schema_history WHERE version = ? AND success = true",
                     Integer.class,

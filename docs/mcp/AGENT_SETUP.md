@@ -71,6 +71,7 @@ list_crops
 get_crop
 get_crop_history
 list_goals
+list_actions
 ```
 
 **Write:**
@@ -81,7 +82,10 @@ update_crop
 create_goal
 record_harvest
 record_crop_observation
+record_action
 ```
+
+`record_action` is for work actually performed on a crop — watering, feeding, pruning, pollinating, moving, planting. It's distinct from `record_crop_observation` (what you saw/measured) and `record_harvest` (what you got out of it). `list_actions` and `get_crop_history` both let a fresh session see what's already been done before deciding what to do next.
 
 **Delete:**
 

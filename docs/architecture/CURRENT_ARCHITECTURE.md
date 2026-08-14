@@ -49,6 +49,7 @@ com.greenhouse.evaluation    Scheduler + coordinator orchestrating twin → asse
 com.greenhouse.state         Composed read model (twin + active assessments)
 com.greenhouse.crop          Crop, Harvest, CropObservation — biological/semantic evidence (persisted)
 com.greenhouse.goal          Goal — user intent for a crop, not executable control (persisted)
+com.greenhouse.action        Action — agricultural work performed on a crop, not machine control (persisted)
 com.greenhouse.mcp           MCP server + tools — the agent capability boundary
 com.greenhouse.common        Cross-cutting (API exception handling)
 static/                      Read-only UI (served by Spring Boot's default static handling)
@@ -74,7 +75,7 @@ The Digital Twin (`com.greenhouse.twin`) contains **no** environmental judgement
 
 All environmental interpretation — limit breaches, staleness-as-a-problem, offline-as-a-problem — lives exclusively in `com.greenhouse.assessment`.
 
-`com.greenhouse.crop` and `com.greenhouse.goal` are a parallel, deliberately separate domain: biological/semantic evidence about specific crops (health, flowering, harvests, user-stated goals), reported by a human via MCP or REST, not derived from sensors. `com.greenhouse.crop.CropObservation` and `com.greenhouse.observation.ObservationStatus` are unrelated types that happen to share the word "observation" — see ADR-009 for why that overlap was accepted rather than renamed.
+`com.greenhouse.crop`, `com.greenhouse.goal`, and `com.greenhouse.action` are a parallel, deliberately separate domain: biological/semantic evidence about specific crops (health, flowering, harvests, user-stated goals, work performed), reported by a human via MCP or REST, not derived from sensors. `com.greenhouse.crop.CropObservation` and `com.greenhouse.observation.ObservationStatus` are unrelated types that happen to share the word "observation" — see ADR-009 for why that overlap was accepted rather than renamed. `Action` (what was done — watering, feeding, pruning) is likewise kept distinct from `CropObservation` (what was observed) and `Harvest` (what was produced) — see ADR-017. `Goal` and `Action` each live in their own package rather than inside `com.greenhouse.crop`, since both are explicitly forward-facing: `Goal` toward a future objective/decision model, `Action` toward a future `Control` layer that does not exist yet.
 
 ## 4. Data flow
 
@@ -105,7 +106,7 @@ Two independent triggers read/write this pipeline:
 
 ## 5. Persistence
 
-PostgreSQL, seven tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
+PostgreSQL, eight tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
 
 - **`observation`** (V1) — append-only log. One row per accepted reading: `device_id`, `temperature_celsius`, `humidity_percent`, `pressure_hpa`, `received_at`. Rows are never updated or deleted by the ingestion path. No foreign key to `device` (ingestion must keep working even if a device record is temporarily missing).
 - **`device`** (V2) — one mutable row per device, natural key (`device_id`, no surrogate id): `software_version`, `first_seen_at`, `last_seen_at`, `last_ip_address`, `last_signal_strength_dbm`, `last_uptime_seconds`, `heartbeat_count`, `enabled`, `updated_at`. `online` is never stored — always derived at read time from `last_seen_at`.
@@ -114,8 +115,9 @@ PostgreSQL, seven tables via Flyway migrations (`backend/src/main/resources/db/m
 - **`goal`** (V5) — `crop_id` (FK), `goal_type` (enum + `OTHER`), `description`, `status` (`ACTIVE`/`COMPLETED`/`CANCELLED`), `priority`, `source_instruction` (the user's own words), `metadata_json` (JSONB).
 - **`harvest`** (V6) — `crop_id` (FK), `harvested_at`, `quantity` + `unit` (`GRAMS`/`KILOGRAMS`/`COUNT` — always paired, never a bare number), `notes`.
 - **`crop_observation`** (V7) — `crop_id` (FK), `metric` (enum + `OTHER`), `value_type` (`NUMERIC`/`TEXT`/`BOOLEAN`) discriminating exactly one of `numeric_value`/`text_value`/`boolean_value`, `unit`, `source` (`HUMAN`/`AI_DERIVED`/`DERIVED`/`EXTERNAL`), `confidence`, `observed_at`, `notes`, `metadata_json` (JSONB).
+- **`action`** (V8) — `crop_id` (FK), `type` (enum: `WATER`/`FEED`/`PRUNE`/`POLLINATE`/`MOVE`/`PLANT`/`OTHER`), `description`, `quantity` + `unit` (quantity requires unit, same "never a bare number" rule as `harvest`), `performed_at`, `performed_by` (`HUMAN`/`AGENT`/`AUTOMATION`/`SYSTEM`, defaults to `HUMAN`), `created_at`.
 
-`goal`, `harvest`, and `crop_observation` all have real foreign keys to `crop(id)` — unlike `observation`/`device`, they're only ever written through validated domain services, never raw ingestion, so the FK-avoidance rationale doesn't apply (see ADR-009).
+`goal`, `harvest`, `crop_observation`, and `action` all have real foreign keys to `crop(id)` — unlike `observation`/`device`, they're only ever written through validated domain services, never raw ingestion, so the FK-avoidance rationale doesn't apply (see ADR-009).
 
 ## 6. APIs
 
@@ -141,6 +143,8 @@ All under the same origin as the UI (`http://<host>:8080`), no CORS configuratio
 | `POST`/`GET`/`DELETE` | `/api/v1/crops/{cropId}/harvests(/{harvestId})` | Record / list / delete harvests |
 | `POST`/`GET`/`DELETE` | `/api/v1/crops/{cropId}/observations(/{observationId})` | Record / list / delete crop observations |
 | `POST`/`GET`/`DELETE` | `/api/v1/crops/{cropId}/goals(/{goalId})` | Create / list / delete goals |
+| `POST` | `/api/v1/actions` | Record an action (work performed on a crop) |
+| `GET` | `/api/v1/actions`, `/api/v1/actions?cropId=`, `/api/v1/actions/{id}` | List (optionally filtered by crop, newest first) / get an action |
 | `POST` | `/mcp` | MCP Streamable HTTP endpoint (bearer-token authenticated) — see §8 |
 | `GET` | `/` | Read-only dashboard (static HTML/CSS/JS) |
 | `GET` | `/actuator/health`, `/actuator/info` | Operational health (`info` currently returns `{}` — the env info contributor isn't populated) |
@@ -158,17 +162,19 @@ REST and MCP tools both call the same domain services directly (`CropService`, `
 
 ## 8. MCP agent interface
 
-An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Fourteen tools are exposed:
+An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Sixteen tools are exposed:
 
 ```
-Read:   get_greenhouse_state, list_crops, get_crop, get_crop_history, list_goals
-Write:  create_crop, update_crop, create_goal, record_harvest, record_crop_observation
+Read:   get_greenhouse_state, list_crops, get_crop, get_crop_history, list_goals, list_actions
+Write:  create_crop, update_crop, create_goal, record_harvest, record_crop_observation, record_action
 Delete: delete_crop, delete_goal, delete_harvest, delete_crop_observation
 ```
 
-`delete_crop` only succeeds if the crop has no recorded goals, harvests, or observations — anything with real history must be retired via `update_crop` (`status: ENDED`) instead. The three leaf-record delete tools (`delete_goal`/`delete_harvest`/`delete_crop_observation`) are unrestricted, since a single leaf record has no children of its own. See ADR-016.
+`delete_crop` only succeeds if the crop has no recorded goals, harvests, or observations — anything with real history must be retired via `update_crop` (`status: ENDED`) instead. The three leaf-record delete tools (`delete_goal`/`delete_harvest`/`delete_crop_observation`) are unrestricted, since a single leaf record has no children of its own. See ADR-016. `Action` has no delete tool yet — not rejected, just not yet requested; it would follow the same unrestricted pattern if added.
 
-Every tool calls a domain service directly (never a repository directly, never REST), validates its input, and maps known domain errors (`CropNotFoundException`, `GoalNotFoundException`, `HarvestNotFoundException`, `CropObservationNotFoundException`, `DomainValidationException`) to a clean text message rather than a raw exception (`McpToolSupport`). No tool executes SQL, shell commands, or file access.
+`record_action` persists agricultural work performed on a crop (watering, feeding, pruning, pollinating, moving, planting) — distinct from `record_crop_observation` (what was seen) and `record_harvest` (what was produced). `get_crop_history` composes all four (goals, actions, harvests, observations) alongside the crop's own details, so a completely fresh MCP session can reconstruct a crop's full story — proven directly in `McpServerIntegrationTest` via two independent MCP sessions. See ADR-017.
+
+Every tool calls a domain service directly (never a repository directly, never REST), validates its input, and maps known domain errors (`CropNotFoundException`, `GoalNotFoundException`, `HarvestNotFoundException`, `CropObservationNotFoundException`, `ActionNotFoundException`, `DomainValidationException`) to a clean text message rather than a raw exception (`McpToolSupport`). No tool executes SQL, shell commands, or file access.
 
 **Authentication**: a bearer-token servlet filter (`McpAuthenticationFilter`) guards every request under `/mcp`; every other endpoint is unaffected. The token is supplied via `GREENHOUSE_MCP_AUTH_TOKEN` (same environment-variable-backed pattern as the database password). If unset, every `/mcp` request is rejected — the filter fails closed, never open. Full client setup: `docs/mcp/AGENT_SETUP.md`. Implementation detail: `docs/mcp/IMPLEMENTATION.md`.
 
