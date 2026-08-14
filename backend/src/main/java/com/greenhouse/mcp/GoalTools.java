@@ -36,7 +36,7 @@ public class GoalTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () ->
                         goalService.listGoalsByCrop(McpToolSupport.requireLong(request.arguments(), "cropId"))))
                 .build();
     }
@@ -62,7 +62,7 @@ public class GoalTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () -> {
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () -> {
                     var arguments = request.arguments();
                     return goalService.createGoal(
                             McpToolSupport.requireLong(arguments, "cropId"),
@@ -90,7 +90,7 @@ public class GoalTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () ->
                         goalService.deleteGoal(McpToolSupport.requireLong(request.arguments(), "goalId"))))
                 .build();
     }

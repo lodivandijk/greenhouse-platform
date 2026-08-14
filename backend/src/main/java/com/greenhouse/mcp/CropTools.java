@@ -39,7 +39,7 @@ public class CropTools {
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
                 .callHandler((exchange, request) ->
-                        McpToolSupport.execute(LOGGER, mcpJsonMapper, cropService::listCrops))
+                        McpToolSupport.execute(LOGGER, mcpJsonMapper, request, cropService::listCrops))
                 .build();
     }
 
@@ -57,7 +57,7 @@ public class CropTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () ->
                         cropService.getCrop(McpToolSupport.requireLong(request.arguments(), "cropId"))))
                 .build();
     }
@@ -77,7 +77,7 @@ public class CropTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () ->
                         cropHistoryService.getCropHistory(McpToolSupport.requireLong(request.arguments(), "cropId"))))
                 .build();
     }
@@ -100,7 +100,7 @@ public class CropTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () -> {
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () -> {
                     var arguments = request.arguments();
                     String species = McpToolSupport.optionalString(arguments, "species");
                     String location = McpToolSupport.optionalString(arguments, "location");
@@ -134,7 +134,7 @@ public class CropTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () -> {
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () -> {
                     var arguments = request.arguments();
                     return cropService.updateCrop(
                             McpToolSupport.requireLong(arguments, "cropId"),
@@ -164,7 +164,7 @@ public class CropTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () ->
                         cropService.deleteCrop(McpToolSupport.requireLong(request.arguments(), "cropId"))))
                 .build();
     }

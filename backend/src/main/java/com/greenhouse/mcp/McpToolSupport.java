@@ -23,18 +23,36 @@ final class McpToolSupport {
     private McpToolSupport() {
     }
 
-    static McpSchema.CallToolResult execute(Logger logger, McpJsonMapper jsonMapper, Supplier<Object> action) {
+    // Logs one line per call and one line per outcome - enough to reconstruct
+    // "what was called with what, and what came back" while refining tool
+    // descriptions/behaviour, without dumping full response bodies (truncated)
+    // or anything from the request beyond the arguments the model itself chose.
+    private static final int RESPONSE_LOG_MAX_CHARS = 300;
+
+    static McpSchema.CallToolResult execute(
+            Logger logger, McpJsonMapper jsonMapper, McpSchema.CallToolRequest request, Supplier<Object> action
+    ) {
+        logger.info("MCP tool call: tool={} arguments={}", request.name(), request.arguments());
         try {
             String json = jsonMapper.writeValueAsString(action.get());
+            logger.info("MCP tool result: tool={} status=ok response={}", request.name(), truncate(json));
             return McpSchema.CallToolResult.builder()
                     .addTextContent(json)
                     .build();
         } catch (CropNotFoundException | GoalNotFoundException | DomainValidationException e) {
+            logger.info("MCP tool result: tool={} status=rejected reason={}", request.name(), e.getMessage());
             return error(e.getMessage());
         } catch (Exception e) {
-            logger.error("Unexpected error handling MCP tool call", e);
+            logger.error("MCP tool result: tool={} status=error", request.name(), e);
             return error("An unexpected error occurred while processing this request.");
         }
+    }
+
+    private static String truncate(String json) {
+        if (json.length() <= RESPONSE_LOG_MAX_CHARS) {
+            return json;
+        }
+        return json.substring(0, RESPONSE_LOG_MAX_CHARS) + "...(truncated, " + json.length() + " chars total)";
     }
 
     private static McpSchema.CallToolResult error(String message) {

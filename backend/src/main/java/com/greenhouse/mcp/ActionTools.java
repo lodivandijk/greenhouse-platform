@@ -48,7 +48,7 @@ public class ActionTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () -> {
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () -> {
                     var arguments = request.arguments();
                     return actionService.recordAction(
                             McpToolSupport.requireLong(arguments, "cropId"),
@@ -79,7 +79,7 @@ public class ActionTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () -> {
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () -> {
                     var arguments = request.arguments();
                     return actionService.listActions(
                             McpToolSupport.requireLong(arguments, "cropId"),

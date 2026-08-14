@@ -67,7 +67,9 @@ Input schemas are literal JSON Schema strings (see `McpSchema.Tool.Builder#input
 `McpToolSupport` centralizes two things every handler needs:
 
 - **Argument parsing** (`requireLong`, `optionalString`, `optionalInstant`, `requireEnum`, etc.) against the raw `Map<String, Object>` MCP hands a tool call — there is no request-binding layer like Spring MVC's for MCP arguments, so this is the one place casting/parsing happens.
-- **Error mapping** (`execute(Logger, McpJsonMapper, Supplier<Object>)`) — catches `CropNotFoundException`, `GoalNotFoundException`, and `DomainValidationException` and returns a clean text `CallToolResult` with `isError(true)` (e.g. `"Crop not found: 42"`); anything else is logged server-side and returned as a generic message, never a raw stack trace or exception class name to the client.
+- **Error mapping** (`execute(Logger, McpJsonMapper, CallToolRequest, Supplier<Object>)`) — catches `CropNotFoundException`, `GoalNotFoundException`, and `DomainValidationException` and returns a clean text `CallToolResult` with `isError(true)` (e.g. `"Crop not found: 42"`); anything else is logged server-side and returned as a generic message, never a raw stack trace or exception class name to the client.
+
+`execute` also logs one INFO line per call (`MCP tool call: tool=... arguments=...`) and one INFO line per outcome (`MCP tool result: tool=... status=ok|rejected|error ...`), tagged with each `*Tools` class's own logger so `journalctl -u greenhouse -f` shows which package a call came from. Successful responses are truncated to 300 chars (`McpToolSupport.RESPONSE_LOG_MAX_CHARS`) so a large `get_crop_history` payload doesn't flood the log — this is meant to support refining tool descriptions/behaviour (seeing what an agent actually called and got back), not as an audit trail or telemetry system, so it's deliberately not structured/queryable beyond grep.
 
 ## Mapping from MCP tools to domain services
 

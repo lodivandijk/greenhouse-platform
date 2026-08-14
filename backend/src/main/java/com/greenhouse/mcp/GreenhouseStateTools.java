@@ -36,7 +36,7 @@ public class GreenhouseStateTools {
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
                 .callHandler((exchange, request) ->
-                        McpToolSupport.execute(LOGGER, mcpJsonMapper, greenhouseStateService::getCurrentState))
+                        McpToolSupport.execute(LOGGER, mcpJsonMapper, request, greenhouseStateService::getCurrentState))
                 .build();
     }
 }

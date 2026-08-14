@@ -42,7 +42,7 @@ public class HarvestTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () -> {
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () -> {
                     var arguments = request.arguments();
                     return harvestService.recordHarvest(
                             McpToolSupport.requireLong(arguments, "cropId"),
@@ -68,7 +68,7 @@ public class HarvestTools {
 
         return McpServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, () ->
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () ->
                         harvestService.deleteHarvest(McpToolSupport.requireLong(request.arguments(), "harvestId"))))
                 .build();
     }
