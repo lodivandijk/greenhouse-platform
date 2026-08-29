@@ -12,7 +12,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 // to /mcp must be rejected - never treated as "auth disabled."
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "greenhouse.evaluation.enabled=false"
+        properties = {"greenhouse.evaluation.enabled=false",
+                "greenhouse.daily-briefing.enabled=false"}
 )
 class McpAuthenticationUnconfiguredTest {
 

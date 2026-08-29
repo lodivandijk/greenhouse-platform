@@ -40,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 // explicitly instead.
 @SpringBootTest(properties = {
         "greenhouse.evaluation.enabled=false",
+                "greenhouse.daily-briefing.enabled=false",
         "greenhouse.outcome-evaluation.enabled=false"
 })
 class CareLoopLifecycleTest {

@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "greenhouse.evaluation.enabled=false",
+                "greenhouse.daily-briefing.enabled=false",
                 "greenhouse.mcp.auth-token=test-mcp-token-12345"
         }
 )
@@ -95,7 +96,11 @@ class McpServerIntegrationTest {
                 "get_greenhouse_state", "list_crops", "get_crop", "get_crop_history", "list_goals",
                 "create_crop", "update_crop", "create_goal", "record_harvest", "record_crop_observation",
                 "delete_crop", "delete_goal", "delete_harvest", "delete_crop_observation",
-                "record_action", "list_actions"
+                "record_action", "list_actions",
+                // Care loop tools
+                "get_open_care_loops", "get_care_loop", "get_daily_crop_status",
+                "propose_care_decision", "record_decision_response", "record_command_response",
+                "record_care_execution", "record_outcome_review", "record_loop_scope_override"
         );
 
         JsonNode getCropTool = StreamSupport.stream(tools.spliterator(), false)
@@ -298,5 +303,85 @@ class McpServerIntegrationTest {
 
         assertThat(listedText).contains("\"type\":\"WATER\"");
         assertThat(listedText).contains("\"unit\":\"ml\"");
+    }
+
+    @Test
+    void careLoopWriteToolsDeclareTheHumanConfirmationContract() throws Exception {
+        String sessionId = initializeSession();
+        HttpResponse<String> response = McpTestSupport.post(
+                baseUrl(), TOKEN, sessionId, McpTestSupport.toolsListRequestBody());
+        JsonNode tools = McpTestSupport.parseJsonRpcBody(jsonMapper, response.body())
+                .path("result").path("tools");
+
+        // Every tool that records a human's answer must say so in its own
+        // description - that text is the only thing telling a fresh agent it
+        // may not approve on the user's behalf.
+        List<String> mustCarryContract = List.of(
+                "record_decision_response", "record_command_response",
+                "record_care_execution", "record_outcome_review", "record_loop_scope_override");
+
+        for (String toolName : mustCarryContract) {
+            JsonNode tool = StreamSupport.stream(tools.spliterator(), false)
+                    .filter(t -> toolName.equals(t.path("name").asString()))
+                    .findFirst().orElseThrow(() -> new AssertionError("Missing tool: " + toolName));
+            String description = tool.path("description").asString();
+            assertThat(description)
+                    .as("%s must state the explicit-human-confirmation requirement", toolName)
+                    .contains("explicitly");
+            assertThat(tool.path("inputSchema").path("required").toString())
+                    .as("%s must require an idempotencyKey", toolName)
+                    .contains("idempotencyKey");
+        }
+    }
+
+    @Test
+    void writeToolRejectsAMissingIdempotencyKey() throws Exception {
+        String sessionId = initializeSession();
+
+        HttpResponse<String> response = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "propose_care_decision", Map.of(
+                        "careLoopId", 1,
+                        "actionType", "WATER_CROP",
+                        "rationale", "test",
+                        "expectedEffect", "test"
+                )));
+
+        JsonNode body = McpTestSupport.parseJsonRpcBody(jsonMapper, response.body());
+        assertThat(body.path("result").path("isError").asBoolean()).isTrue();
+        assertThat(body.path("result").path("content").get(0).path("text").asString())
+                .contains("idempotencyKey");
+    }
+
+    @Test
+    void dailyCropStatusAnswersEvenWithNoPersistedSnapshot() throws Exception {
+        String sessionId = initializeSession();
+
+        HttpResponse<String> response = McpTestSupport.post(baseUrl(), TOKEN, sessionId,
+                McpTestSupport.toolsCallRequestBody(jsonMapper, "get_daily_crop_status", Map.of()));
+
+        JsonNode body = McpTestSupport.parseJsonRpcBody(jsonMapper, response.body());
+        assertThat(body.path("result").path("isError").asBoolean()).isFalse();
+
+        String text = body.path("result").path("content").get(0).path("text").asString();
+        assertThat(text).contains("briefing");
+        // The honesty rule travels with the data, not just the tool description.
+        assertThat(text).contains("not a volumetric water percentage");
+    }
+
+    @Test
+    void noGenericUpdateToolsAreExposed() throws Exception {
+        String sessionId = initializeSession();
+        HttpResponse<String> response = McpTestSupport.post(
+                baseUrl(), TOKEN, sessionId, McpTestSupport.toolsListRequestBody());
+
+        var toolNames = StreamSupport.stream(
+                        McpTestSupport.parseJsonRpcBody(jsonMapper, response.body())
+                                .path("result").path("tools").spliterator(), false)
+                .map(t -> t.path("name").asString())
+                .toList();
+
+        assertThat(toolNames).doesNotContain(
+                "update_assessment", "update_decision", "update_command",
+                "update_execution", "update_outcome", "execute_sql", "query");
     }
 }

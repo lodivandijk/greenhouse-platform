@@ -1,6 +1,9 @@
 package com.greenhouse.mcp;
 
+import com.greenhouse.careloop.CareLoopNotFoundException;
+import com.greenhouse.careloop.InvalidLoopTransitionException;
 import com.greenhouse.common.DomainValidationException;
+import com.greenhouse.common.IdempotencyConflictException;
 import com.greenhouse.crop.CropNotFoundException;
 import com.greenhouse.goal.GoalNotFoundException;
 import io.modelcontextprotocol.json.McpJsonMapper;
@@ -39,7 +42,9 @@ final class McpToolSupport {
             return McpSchema.CallToolResult.builder()
                     .addTextContent(json)
                     .build();
-        } catch (CropNotFoundException | GoalNotFoundException | DomainValidationException e) {
+        } catch (CropNotFoundException | GoalNotFoundException | DomainValidationException
+                 | CareLoopNotFoundException | InvalidLoopTransitionException
+                 | IdempotencyConflictException e) {
             logger.info("MCP tool result: tool={} status=rejected reason={}", request.name(), e.getMessage());
             return error(e.getMessage());
         } catch (Exception e) {

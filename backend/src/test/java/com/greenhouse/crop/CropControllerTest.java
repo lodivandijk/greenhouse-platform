@@ -15,7 +15,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = "greenhouse.evaluation.enabled=false")
+@SpringBootTest(properties = {"greenhouse.evaluation.enabled=false",
+                "greenhouse.daily-briefing.enabled=false"})
 @AutoConfigureMockMvc
 @Transactional
 class CropControllerTest {

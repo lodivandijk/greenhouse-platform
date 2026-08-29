@@ -12,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "greenhouse.evaluation.enabled=false",
+                "greenhouse.daily-briefing.enabled=false",
                 "greenhouse.mcp.auth-token=test-mcp-token-12345"
         }
 )

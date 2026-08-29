@@ -55,3 +55,9 @@ greenhouse:
     enabled: true
     interval: PT5M
     initial-delay: PT30S
+
+  daily-briefing:
+    enabled: true
+    zone: Europe/London
+    generate-at: "06:00"
+    window: PT24H

@@ -346,6 +346,16 @@ public class OutcomeService {
         return reviewEventRepository.findAllByOutcomeIdOrderByOccurredAtAsc(outcomeId);
     }
 
+    public Long careLoopIdForOutcome(Long outcomeId) {
+        return outcomeRepository.findById(outcomeId)
+                .map(Outcome::getCareLoopId)
+                .orElseThrow(() -> new DomainValidationException("Unknown outcome: " + outcomeId));
+    }
+
+    public List<Outcome> forLoopsSince(Instant since) {
+        return outcomeRepository.findAllByEvaluatedAtAfterOrderByEvaluatedAtDesc(since);
+    }
+
     public List<OutcomeEvaluationSchedule> pendingEvaluations() {
         return scheduleRepository.findAllByCompletedAtIsNull();
     }

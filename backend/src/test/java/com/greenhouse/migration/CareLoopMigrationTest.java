@@ -9,7 +9,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties = "greenhouse.evaluation.enabled=false")
+@SpringBootTest(properties = {"greenhouse.evaluation.enabled=false",
+                "greenhouse.daily-briefing.enabled=false"})
 class CareLoopMigrationTest {
 
     @Autowired

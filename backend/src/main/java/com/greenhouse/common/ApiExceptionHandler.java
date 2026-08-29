@@ -1,6 +1,8 @@
 package com.greenhouse.common;
 
 import com.greenhouse.action.ActionNotFoundException;
+import com.greenhouse.careloop.CareLoopNotFoundException;
+import com.greenhouse.careloop.InvalidLoopTransitionException;
 import com.greenhouse.crop.CropNotFoundException;
 import com.greenhouse.crop.CropObservationNotFoundException;
 import com.greenhouse.crop.HarvestNotFoundException;
@@ -84,6 +86,27 @@ public class ApiExceptionHandler {
                 exception.getMessage()
         );
         problem.setTitle("Action not found");
+        return problem;
+    }
+
+    @ExceptionHandler(CareLoopNotFoundException.class)
+    ProblemDetail handleCareLoopNotFound(CareLoopNotFoundException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+        problem.setTitle("Care loop not found");
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidLoopTransitionException.class)
+    ProblemDetail handleInvalidLoopTransition(InvalidLoopTransitionException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+        problem.setTitle("Invalid care loop transition");
+        return problem;
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    ProblemDetail handleIdempotencyConflict(IdempotencyConflictException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+        problem.setTitle("Idempotency key conflict");
         return problem;
     }
 

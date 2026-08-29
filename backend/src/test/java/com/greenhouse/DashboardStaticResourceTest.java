@@ -17,7 +17,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 // container does, which is what matters here.
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "greenhouse.evaluation.enabled=false"
+        properties = {"greenhouse.evaluation.enabled=false",
+                "greenhouse.daily-briefing.enabled=false"}
 )
 class DashboardStaticResourceTest {
 

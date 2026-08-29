@@ -21,7 +21,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 // the same real-transaction-boundary reasoning elsewhere in this codebase.
 // Consequence: writes here genuinely persist, so every deviceId/sensorId used
 // by a test that expects success must be tracked and cleaned up below.
-@SpringBootTest(properties = "greenhouse.evaluation.enabled=false")
+@SpringBootTest(properties = {"greenhouse.evaluation.enabled=false",
+                "greenhouse.daily-briefing.enabled=false"})
 class ObservationServiceTest {
 
     @Autowired

@@ -28,7 +28,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "greenhouse.twin.zones[0].zone-id=zone-main",
         "greenhouse.twin.zones[0].name=Main Greenhouse",
         "greenhouse.twin.zones[0].device-ids[0]=lifecycle-test-device",
-        "greenhouse.evaluation.enabled=false"
+        "greenhouse.evaluation.enabled=false",
+        "greenhouse.daily-briefing.enabled=false"
 })
 @AutoConfigureMockMvc
 @Transactional
