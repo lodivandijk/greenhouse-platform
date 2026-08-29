@@ -48,3 +48,10 @@ greenhouse:
     enabled: true
     interval: PT1M
     initial-delay: PT10S
+
+  # Outcome evaluation windows are hours-scale and per-execution, so this runs
+  # on its own slower cadence rather than the one-minute assessment tick.
+  outcome-evaluation:
+    enabled: true
+    interval: PT5M
+    initial-delay: PT30S
