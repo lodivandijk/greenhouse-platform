@@ -33,11 +33,8 @@ constexpr SoilSensorConfig ALL[] = {
     {"soil-05", 36}
 };
 
-// Sensors 1-4 (soil-01/02/03/04, GPIO34/33/32/35) are physically wired as of
-// 2026-08-29. Raise this to 5 once soil-05 (oregano) is connected - an
-// unconnected analogue input floats and produces meaningless readings
-// (spec section 5.4).
-constexpr int ACTIVE_COUNT = 4;
+// All 5 sensors (soil-01..soil-05) are physically wired as of 2026-08-30.
+constexpr int ACTIVE_COUNT = 5;
 
 }  // namespace SoilSensors
 
