@@ -19,7 +19,7 @@ Arduino firmware for the greenhouse sensor node.
 
 The sketch expects the sensor at I2C address `0x76` (`Config::BME280_I2C_ADDRESS`). Some breakout boards default to `0x77` instead — update `Config.h` if the sensor isn't detected at boot.
 
-### Soil moisture wiring (Phase A diagnostics)
+### Soil moisture wiring
 
 Capacitive Soil Moisture Sensor v1.2 probes, one per GPIO, all sharing the 3.3V and GND rails. Only 5 physical sensors exist — a planned sixth (tarragon, GPIO39) will not be wired. Each sensor's *initial* plant mapping is shown for reference only — it lives in the backend's `SoilSensorProperties` config, not in firmware, so re-assigning a probe to a different plant never requires a reflash (see ADR-018):
 
@@ -33,7 +33,7 @@ Capacitive Soil Moisture Sensor v1.2 probes, one per GPIO, all sharing the 3.3V 
 
 The sensor-to-GPIO mapping lives in `SoilMoistureSensor.h` (`SoilSensors::ALL`) — that's the single firmware source of truth for *hardware* identity. Sensors 1-4 (`soil-01`..`soil-04`) are physically wired as of this writing; `SoilSensors::ACTIVE_COUNT` controls how many of the five are actually read, since an unconnected analogue input floats and produces meaningless values. Raise it to 5 once `soil-05` is wired in.
 
-This is Phase A of `docs/architecture/soil-moisture-sensor-integration-v2-spec.md`: raw 12-bit ADC values are logged to Serial only, nothing is sent to the backend yet, and no moisture percentage or dry/wet classification is derived.
+Raw 12-bit ADC values for every active sensor are included in each observation POST (`soilMoisture: [{sensorId, rawAdc}, ...]`, see `docs/architecture/soil-moisture-sensor-integration-v2-spec.md` section 7) and still logged to Serial for diagnosis. No moisture percentage or dry/wet classification is derived anywhere in firmware. Unwired sensors (beyond `SoilSensors::ACTIVE_COUNT`) are simply absent from the array, never reported with a fabricated value — see the comment on `SoilMoistureSensor` for why there's no per-reading failure sentinel.
 
 ## Setup
 
@@ -50,6 +50,4 @@ arduino-cli compile --fqbn esp32:esp32:pico32 firmware/GreenhouseESP32
 
 On boot, the device connects to Wi-Fi, then on a fixed timer (`Config::HEARTBEAT_INTERVAL_MS`) POSTs a heartbeat to the backend's `/api/heartbeats` endpoint. Heartbeats are skipped while Wi-Fi is disconnected and resume automatically once it reconnects. Diagnostics are always logged to Serial regardless of network state.
 
-Independently, on its own fixed timer (`Config::OBSERVATION_INTERVAL_MS`), the device reads temperature/humidity/pressure from the BME280 and POSTs it to `/api/observations`. Observations are skipped (with a logged warning) if the sensor wasn't detected at boot or if Wi-Fi is disconnected, and resume automatically once conditions recover.
-
-Independently again, on its own fixed timer (`Config::SOIL_DIAGNOSTIC_INTERVAL_MS`, 60 seconds by default — matching the observation cadence), the device reads each active soil moisture sensor and logs `soil sensor id=... gpio=... rawAdc=...` to Serial. This never posts to the backend — see the Phase A note above.
+Independently, on its own fixed timer (`Config::OBSERVATION_INTERVAL_MS`), the device reads temperature/humidity/pressure from the BME280, reads every active soil moisture sensor (logging each to Serial as `soil sensor id=... gpio=... rawAdc=...`), and POSTs all of it together as one `/api/observations` payload. There is deliberately no separate timer or second network call for soil data — see `SensorService::sendObservation`. Observations are skipped entirely (with a logged warning) if the BME280 sensor wasn't detected at boot or if Wi-Fi is disconnected, and resume automatically once conditions recover.

@@ -17,7 +17,9 @@ public:
       const String& deviceId,
       float temperatureCelsius,
       float humidityPercent,
-      float pressureHpa
+      float pressureHpa,
+      const uint16_t* soilRawAdc,
+      int soilReadingCount
   );
 
 private:
@@ -35,7 +37,9 @@ private:
       const String& deviceId,
       float temperatureCelsius,
       float humidityPercent,
-      float pressureHpa
+      float pressureHpa,
+      const uint16_t* soilRawAdc,
+      int soilReadingCount
   ) const;
 };
 

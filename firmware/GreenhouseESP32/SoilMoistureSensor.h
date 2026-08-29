@@ -3,11 +3,10 @@
 
 #include <Arduino.h>
 
-// Phase A bench-test diagnostics only (see
-// docs/architecture/soil-moisture-sensor-integration-v2-spec.md). Logs raw
-// 12-bit ADC values over serial so each probe's wiring can be validated by
-// hand before any backend/persistence work begins. No moisture percentage or
-// dry/wet classification is derived here - see the spec for why.
+// Raw 12-bit ADC readings only (see
+// docs/architecture/soil-moisture-sensor-integration-v2-spec.md). No
+// moisture percentage or dry/wet classification is derived here - see the
+// spec for why.
 //
 // sensorId is a stable hardware identity only - deliberately no plant name
 // here (spec section 4.2). Which plant a sensor currently monitors is
@@ -42,16 +41,26 @@ constexpr int ACTIVE_COUNT = 4;
 
 }  // namespace SoilSensors
 
+// There is deliberately no per-reading "sensor unavailable" sentinel (spec
+// section 7 asks for one, but a bare resistive/capacitive divider probe has
+// no failure signal the way BME280's I2C ACK/NACK does - analogRead() always
+// returns *some* 0-4095 value, wired or not). The only real "unavailable"
+// state this hardware can express is "not wired yet", which is already
+// handled by ACTIVE_COUNT: unwired sensors are simply omitted from every
+// reading and every transmitted payload, never reported with a fabricated
+// value. See ApiClient::buildObservationPayload.
 class SoilMoistureSensor {
 public:
   void begin();
-  void update();
+
+  // Reads every active sensor (SoilSensors::ACTIVE_COUNT of them, in the same
+  // order as SoilSensors::ALL) into outRawAdc and logs each to Serial for
+  // diagnosis. outRawAdc must have room for at least SoilSensors::ACTIVE_COUNT
+  // entries. Returns the number of sensors read.
+  int readActiveSensors(uint16_t* outRawAdc, int maxCount) const;
 
 private:
-  unsigned long lastReadMs = 0;
-
   static uint16_t readRawAdc(uint8_t gpio);
-  void logReadings() const;
 };
 
 #endif

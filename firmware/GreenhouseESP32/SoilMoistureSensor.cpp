@@ -1,6 +1,5 @@
 #include "SoilMoistureSensor.h"
 
-#include "Config.h"
 #include "Logger.h"
 
 namespace {
@@ -16,22 +15,26 @@ void SoilMoistureSensor::begin() {
   }
 
   Logger::info(
-      "Soil moisture diagnostics enabled for "
-      + String(SoilSensors::ACTIVE_COUNT) + " sensor(s)."
+      "Soil moisture sensors enabled: " + String(SoilSensors::ACTIVE_COUNT)
   );
-
-  lastReadMs = millis();
 }
 
-void SoilMoistureSensor::update() {
-  const unsigned long currentTimeMs = millis();
+int SoilMoistureSensor::readActiveSensors(uint16_t* outRawAdc, int maxCount) const {
+  const int count = min(maxCount, SoilSensors::ACTIVE_COUNT);
 
-  if (currentTimeMs - lastReadMs < Config::SOIL_DIAGNOSTIC_INTERVAL_MS) {
-    return;
+  for (int i = 0; i < count; ++i) {
+    const SoilSensorConfig& sensor = SoilSensors::ALL[i];
+    const uint16_t rawAdc = readRawAdc(sensor.gpio);
+    outRawAdc[i] = rawAdc;
+
+    Logger::info(
+        "soil sensor id=" + String(sensor.sensorId)
+        + " gpio=" + String(sensor.gpio)
+        + " rawAdc=" + String(rawAdc)
+    );
   }
 
-  lastReadMs = currentTimeMs;
-  logReadings();
+  return count;
 }
 
 uint16_t SoilMoistureSensor::readRawAdc(uint8_t gpio) {
@@ -46,17 +49,4 @@ uint16_t SoilMoistureSensor::readRawAdc(uint8_t gpio) {
   }
 
   return static_cast<uint16_t>(total / SAMPLE_COUNT);
-}
-
-void SoilMoistureSensor::logReadings() const {
-  for (int i = 0; i < SoilSensors::ACTIVE_COUNT; ++i) {
-    const SoilSensorConfig& sensor = SoilSensors::ALL[i];
-    const uint16_t rawAdc = readRawAdc(sensor.gpio);
-
-    Logger::info(
-        "soil sensor id=" + String(sensor.sensorId)
-        + " gpio=" + String(sensor.gpio)
-        + " rawAdc=" + String(rawAdc)
-    );
-  }
 }

@@ -9,8 +9,9 @@
 #include "Logger.h"
 
 SensorService::SensorService(
-    GreenhouseWiFi& greenhouseWiFiReference
-) : greenhouseWiFi(greenhouseWiFiReference) {
+    GreenhouseWiFi& greenhouseWiFiReference,
+    SoilMoistureSensor& soilMoistureSensorReference
+) : greenhouseWiFi(greenhouseWiFiReference), soilMoistureSensor(soilMoistureSensorReference) {
 }
 
 namespace {
@@ -83,11 +84,19 @@ void SensorService::sendObservation() {
       + " | pressure=" + String(pressureHpa, 1) + "hPa"
   );
 
+  // Soil readings are taken on this same cycle rather than a separate timer,
+  // so there is exactly one network POST per observation (spec section 7:
+  // "do not introduce a second high-frequency network loop").
+  uint16_t soilRawAdc[SoilSensors::ACTIVE_COUNT];
+  const int soilReadingCount = soilMoistureSensor.readActiveSensors(soilRawAdc, SoilSensors::ACTIVE_COUNT);
+
   const int httpCode = apiClient.sendObservation(
       DeviceInfo::DEVICE_ID,
       temperatureCelsius,
       humidityPercent,
-      pressureHpa
+      pressureHpa,
+      soilRawAdc,
+      soilReadingCount
   );
 
   if (httpCode > 0) {

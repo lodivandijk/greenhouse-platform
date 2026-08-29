@@ -4,18 +4,20 @@
 #include <Adafruit_BME280.h>
 
 #include "ApiClient.h"
+#include "SoilMoistureSensor.h"
 
 class GreenhouseWiFi;
 
 class SensorService {
 public:
-  explicit SensorService(GreenhouseWiFi& greenhouseWiFi);
+  SensorService(GreenhouseWiFi& greenhouseWiFi, SoilMoistureSensor& soilMoistureSensor);
 
   void begin();
   void update();
 
 private:
   GreenhouseWiFi& greenhouseWiFi;
+  SoilMoistureSensor& soilMoistureSensor;
   ApiClient apiClient;
   Adafruit_BME280 bme;
 

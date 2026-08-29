@@ -8,8 +8,8 @@
 
 GreenhouseWiFi greenhouseWiFi;
 HeartbeatService heartbeatService(greenhouseWiFi);
-SensorService sensorService(greenhouseWiFi);
 SoilMoistureSensor soilMoistureSensor;
+SensorService sensorService(greenhouseWiFi, soilMoistureSensor);
 
 void setup() {
   Logger::begin(Config::SERIAL_BAUD_RATE);
@@ -25,8 +25,8 @@ void setup() {
 
   greenhouseWiFi.begin();
   heartbeatService.begin();
-  sensorService.begin();
   soilMoistureSensor.begin();
+  sensorService.begin();
 
   Logger::info("Startup complete.");
 }
@@ -35,7 +35,6 @@ void loop() {
   greenhouseWiFi.update();
   heartbeatService.update();
   sensorService.update();
-  soilMoistureSensor.update();
 
   delay(20);
 }

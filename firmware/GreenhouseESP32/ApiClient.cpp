@@ -3,6 +3,7 @@
 #include <HTTPClient.h>
 
 #include "Config.h"
+#include "SoilMoistureSensor.h"
 
 int ApiClient::sendHeartbeat(
     const String& deviceId,
@@ -57,7 +58,9 @@ int ApiClient::sendObservation(
     const String& deviceId,
     float temperatureCelsius,
     float humidityPercent,
-    float pressureHpa
+    float pressureHpa,
+    const uint16_t* soilRawAdc,
+    int soilReadingCount
 ) {
   HTTPClient http;
   http.setTimeout(Config::API_TIMEOUT_MS);
@@ -68,7 +71,9 @@ int ApiClient::sendObservation(
       deviceId,
       temperatureCelsius,
       humidityPercent,
-      pressureHpa
+      pressureHpa,
+      soilRawAdc,
+      soilReadingCount
   );
 
   const int httpCode = http.POST(payload);
@@ -86,13 +91,29 @@ String ApiClient::buildObservationPayload(
     const String& deviceId,
     float temperatureCelsius,
     float humidityPercent,
-    float pressureHpa
+    float pressureHpa,
+    const uint16_t* soilRawAdc,
+    int soilReadingCount
 ) const {
   String json = "{";
   json += "\"deviceId\":\"" + deviceId + "\",";
   json += "\"temperatureCelsius\":" + String(temperatureCelsius, 2) + ",";
   json += "\"humidityPercent\":" + String(humidityPercent, 2) + ",";
-  json += "\"pressureHpa\":" + String(pressureHpa, 2);
+  json += "\"pressureHpa\":" + String(pressureHpa, 2) + ",";
+
+  // Unwired sensors are simply absent from this array (SoilSensors::ALL vs.
+  // SoilSensors::ACTIVE_COUNT) - never reported with a fabricated value. See
+  // SoilMoistureSensor.h for why there is no per-reading failure sentinel.
+  json += "\"soilMoisture\":[";
+  for (int i = 0; i < soilReadingCount; ++i) {
+    if (i > 0) {
+      json += ",";
+    }
+    json += "{\"sensorId\":\"" + String(SoilSensors::ALL[i].sensorId) + "\",";
+    json += "\"rawAdc\":" + String(soilRawAdc[i]) + "}";
+  }
+  json += "]";
+
   json += "}";
 
   return json;

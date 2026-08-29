@@ -6,7 +6,6 @@ namespace Config {
 constexpr unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 constexpr unsigned long HEARTBEAT_INTERVAL_MS = 60000;
 constexpr unsigned long OBSERVATION_INTERVAL_MS = 60000;
-constexpr unsigned long SOIL_DIAGNOSTIC_INTERVAL_MS = 60000;
 constexpr unsigned long SERIAL_BAUD_RATE = 115200;
 
 constexpr char API_HOST[] = "192.168.1.114";
