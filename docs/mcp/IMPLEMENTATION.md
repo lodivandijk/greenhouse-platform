@@ -39,8 +39,15 @@ com.greenhouse.mcp
 ├── GoalTools                    list_goals, create_goal, delete_goal
 ├── HarvestTools                 record_harvest, delete_harvest
 ├── CropObservationTools         record_crop_observation, delete_crop_observation
-└── ActionTools                  record_action, list_actions
+├── ActionTools                  record_action, list_actions
+├── CareLoopReadTools            get_open_care_loops, get_care_loop
+├── CareLoopWriteTools           propose_care_decision, record_decision_response,
+│                                 record_command_response, record_care_execution,
+│                                 record_outcome_review, record_loop_scope_override
+└── DailyBriefingTools           get_daily_crop_status
 ```
+
+The six care-loop write tools additionally route through `com.greenhouse.common.IdempotencyService`, which is the only place idempotency is implemented - one shared table (`idempotent_request`), one protocol (check by key, reserve, run, store result), rather than per-tool handling. A retry with the same key returns the stored result without re-running the action.
 
 Each `*Tools` class is a `@Configuration` whose `@Bean` methods each return one `McpServerFeatures.SyncToolSpecification`. This mirrors the tool groupings in the milestone spec, and keeps each file's job to exactly one greenhouse concept.
 
@@ -84,6 +91,13 @@ Every tool calls a `@Service` bean directly — never a repository, never throug
 | `record_harvest`, `delete_harvest` | `com.greenhouse.crop.HarvestService` |
 | `record_crop_observation`, `delete_crop_observation` | `com.greenhouse.crop.CropObservationService` |
 | `record_action`, `list_actions` | `com.greenhouse.action.ActionService` |
+| `get_open_care_loops`, `get_care_loop` | `com.greenhouse.careloop.CareLoopQueryService` |
+| `propose_care_decision` | `com.greenhouse.careloop.decision.DecisionService` |
+| `record_decision_response`, `record_loop_scope_override` | `com.greenhouse.careloop.CareLoopService` |
+| `record_command_response` | `com.greenhouse.careloop.command.CommandService` |
+| `record_care_execution` | `com.greenhouse.careloop.execution.ExecutionService` |
+| `record_outcome_review` | `com.greenhouse.careloop.outcome.OutcomeService` |
+| `get_daily_crop_status` | `com.greenhouse.briefing.DailyBriefingService` |
 
 REST controllers (`CropController`) call these same services directly too — see [ADR-007](../architecture/decisions/ADR-007-mcp-as-agent-capability-boundary.md) for why neither adapter is layered through the other.
 

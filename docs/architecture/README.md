@@ -9,7 +9,7 @@ This section describes the architecture of the Greenhouse Platform, using the mo
 - **[`legacy/`](legacy/)** — earlier architecture documents, superseded by the two above. Kept for point-in-time detail and historical rationale; not authoritative, and some of it now contradicts the current implementation.
 - **[`ARCHITECTURE_PARADIGM.md`](ARCHITECTURE_PARADIGM.md)** — the documentation model itself, plus the platform's longer-term direction (objective-driven reasoning, decisions, actions). That direction is exploratory, not yet implemented — see the paradigm doc's own "Current vs Future" distinction before treating any of it as existing behaviour.
 
-Implementation specs for individual milestones (`digital-twin-v1-spec.md`, `assessment-engine-v1-spec.md`, `ui-v1-spec.md`, `mcp-agent-milestone-v1-spec.md`, `soil-moisture-sensor-integration-v1-spec.md`, `soil-moisture-sensor-integration-v2-spec.md`) remain at the top level of this directory — they're point-in-time acceptance-criteria documents that informed the ADRs, not architecture descriptions themselves. Unlike ADRs, a spec can be superseded in place by a later-numbered spec for the same milestone (see the soil-moisture v1→v2 note) rather than needing a wholly separate decision record.
+Implementation specs for individual milestones (`digital-twin-v1-spec.md`, `assessment-engine-v1-spec.md`, `ui-v1-spec.md`, `mcp-agent-milestone-v1-spec.md`, `soil-moisture-sensor-integration-v1-spec.md`, `soil-moisture-sensor-integration-v2-spec.md`, `daily-crop-status-and-human-feedback-loop-v1-spec.md`) remain at the top level of this directory — they're point-in-time acceptance-criteria documents that informed the ADRs, not architecture descriptions themselves. Unlike ADRs, a spec can be superseded in place by a later-numbered spec for the same milestone (see the soil-moisture v1→v2 note) rather than needing a wholly separate decision record.
 
 ## Documents
 
@@ -38,14 +38,17 @@ docs/architecture/
 │   ├── ADR-017-action-domain.md
 │   ├── ADR-018-soil-moisture-telemetry.md
 │   ├── ADR-019-esp32-ota-updates.md
-│   └── ADR-020-soil-moisture-calibration-storage.md
+│   ├── ADR-020-soil-moisture-calibration-storage.md
+│   ├── ADR-021-immutable-human-in-the-loop-care-model.md
+│   └── ADR-022-calibration-and-assignment-in-database.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec
 ├── ui-v1-spec.md                     milestone spec
 ├── mcp-agent-milestone-v1-spec.md    milestone spec
 ├── soil-moisture-sensor-integration-v1-spec.md   superseded by v2 (3 sensors → 6)
-└── soil-moisture-sensor-integration-v2-spec.md   milestone spec (staged: Phase A firmware, Phase B backend)
+├── soil-moisture-sensor-integration-v2-spec.md   milestone spec (staged: Phase A firmware, Phase B backend)
+└── daily-crop-status-and-human-feedback-loop-v1-spec.md   milestone spec (6 checkpoints)
 ```
 
 ## Development rule

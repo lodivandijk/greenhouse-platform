@@ -72,6 +72,9 @@ get_crop
 get_crop_history
 list_goals
 list_actions
+get_daily_crop_status
+get_open_care_loops
+get_care_loop
 ```
 
 **Write:**
@@ -83,7 +86,20 @@ create_goal
 record_harvest
 record_crop_observation
 record_action
+propose_care_decision
+record_decision_response
+record_command_response
+record_care_execution
+record_outcome_review
+record_loop_scope_override
 ```
+
+The six care-loop write tools drive the human-in-the-loop care cycle: a detected condition becomes a proposed decision, an approved command, a recorded execution, and an evidence-based outcome. Two rules matter when using them:
+
+1. **Approval is genuinely yours.** `propose_care_decision` is Claude acting on its own initiative and issues nothing. Every other care-loop write tool records *your* answer and must only be called after you have actually said so in conversation — they are stored as "human decision, relayed by the agent".
+2. **Every one needs an `idempotencyKey`.** Claude generates it. A retry with the same key returns the original result rather than watering a plant twice.
+
+Start with `get_daily_crop_status` for the morning picture, or `get_open_care_loops` to see what is waiting on you.
 
 `record_action` is for work actually performed on a crop — watering, feeding, pruning, pollinating, moving, planting. It's distinct from `record_crop_observation` (what you saw/measured) and `record_harvest` (what you got out of it). `list_actions` and `get_crop_history` both let a fresh session see what's already been done before deciding what to do next.
 

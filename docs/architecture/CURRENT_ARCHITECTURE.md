@@ -8,10 +8,13 @@ For exact implementation details, the source code and tests remain authoritative
 
 ## 1. Purpose
 
-A monitoring platform for a home greenhouse: an ESP32 sensor node reports environmental readings and connectivity heartbeats to a Spring Boot backend, which persists them, derives current state, evaluates that state against configured operating limits, and presents the result on a read-only dashboard. The backend also persists crop-level knowledge (what's being grown, goals, harvests, manual observations) and exposes both machine state and crop knowledge to AI clients over MCP. The system is currently **observational, not autonomous** — there is no path back from software into the physical greenhouse; MCP write tools record what a human reports, they do not control anything.
+A monitoring platform for a home greenhouse: an ESP32 sensor node reports environmental readings, soil moisture, and connectivity heartbeats to a Spring Boot backend, which persists them, derives current state, evaluates that state against configured operating limits *and against each crop's own preferred conditions*, and presents the result on a read-only dashboard. The backend also persists crop-level knowledge (what's being grown, goals, harvests, manual observations, work performed) and exposes both machine state and crop knowledge to AI clients over MCP.
+
+It now also runs a **human-in-the-loop care cycle**: a detected condition can become a proposed decision, an approved command, a recorded execution, and an evidence-based outcome — all append-only, all resumable by a fresh agent session. The system remains **observational, not autonomous**: there is no path from software into the physical greenhouse, every command targets a human, and no decision becomes a command without an explicit human approval.
 
 ```
-SENSE → STORE → MODEL → ASSESS → DISPLAY
+SENSE → STORE → MODEL → ASSESS → DECIDE → COMMAND → EXECUTE → OUTCOME → (next observation)
+                                    ↑ human approval required at every gate
 ```
 
 ## 2. Deployed components
@@ -50,8 +53,10 @@ com.greenhouse.state         Composed read model (twin + active assessments)
 com.greenhouse.crop          Crop, Harvest, CropObservation — biological/semantic evidence (persisted)
 com.greenhouse.goal          Goal — user intent for a crop, not executable control (persisted)
 com.greenhouse.action        Action — agricultural work performed on a crop, not machine control (persisted)
+com.greenhouse.careloop      Care loop — Decision, Command, Execution, Outcome and scope (append-only)
+com.greenhouse.briefing      Daily structured crop-status snapshot (immutable, versioned)
 com.greenhouse.mcp           MCP server + tools — the agent capability boundary
-com.greenhouse.common        Cross-cutting (API exception handling)
+com.greenhouse.common        Cross-cutting (API exception handling, idempotency)
 static/                      Read-only UI (served by Spring Boot's default static handling)
 ```
 
@@ -106,7 +111,7 @@ Two independent triggers read/write this pipeline:
 
 ## 5. Persistence
 
-PostgreSQL, nine tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
+PostgreSQL, 28 tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
 
 - **`observation`** (V1) — append-only log. One row per accepted reading: `device_id`, `temperature_celsius`, `humidity_percent`, `pressure_hpa`, `received_at`. Rows are never updated or deleted by the ingestion path. No foreign key to `device` (ingestion must keep working even if a device record is temporarily missing).
 - **`device`** (V2) — one mutable row per device, natural key (`device_id`, no surrogate id): `software_version`, `first_seen_at`, `last_seen_at`, `last_ip_address`, `last_signal_strength_dbm`, `last_uptime_seconds`, `heartbeat_count`, `enabled`, `updated_at`. `online` is never stored — always derived at read time from `last_seen_at`.
@@ -117,6 +122,20 @@ PostgreSQL, nine tables via Flyway migrations (`backend/src/main/resources/db/mi
 - **`crop_observation`** (V7) — `crop_id` (FK), `metric` (enum + `OTHER`), `value_type` (`NUMERIC`/`TEXT`/`BOOLEAN`) discriminating exactly one of `numeric_value`/`text_value`/`boolean_value`, `unit`, `source` (`HUMAN`/`AI_DERIVED`/`DERIVED`/`EXTERNAL`), `confidence`, `observed_at`, `notes`, `metadata_json` (JSONB).
 - **`action`** (V8) — `crop_id` (FK), `type` (enum: `WATER`/`FEED`/`PRUNE`/`POLLINATE`/`MOVE`/`PLANT`/`OTHER`), `description`, `quantity` + `unit` (quantity requires unit, same "never a bare number" rule as `harvest`), `performed_at`, `performed_by` (`HUMAN`/`AGENT`/`AUTOMATION`/`SYSTEM`, defaults to `HUMAN`), `created_at`.
 - **`soil_moisture_reading`** (V9) — append-only log, one row per physical probe per observation cycle: `device_id`, `sensor_id` (the probe's stable identity, e.g. `soil-01`), `raw_adc` (`INTEGER CHECK (raw_adc BETWEEN 0 AND 4095)`), `millivolts` (nullable, unpopulated until calibration work lands), `received_at`. No foreign key to `observation` or `crop` — see ADR-018 for why the two telemetry tables stay independent rather than parent/child. No `observed_at`: the firmware has no wall-clock time source yet, so only backend-assigned `received_at` is stored.
+
+**Care-loop tables (V10–V26, ADR-021/ADR-022)** — the append-only half of the schema. Business records here are never updated in place; a correction is a new linked row.
+
+- **`crop_monitoring_profile`** (V10) — versioned per-crop interpretation: preferred temperature range, excursion/recovery durations, soil strategy (`EVENLY_MOIST`/`DRY_BETWEEN_WATERING`) and index thresholds. A change creates a new version so historical assessments keep referencing the one that produced them. Seeded for the six herbs by V27.
+- **`crop_sensor_assignment`** (V11) / **`sensor_calibration`** (V12) — which probe serves which crop, and that probe's measured dry/wet references, both versioned. Seeded by V13 from the real ADR-020 measurements. Separate tables because sensor identity and crop assignment change independently.
+- **`assessment_lifecycle_event`** (V14) — full-snapshot row per assessment transition (`RAISED`/`UPDATED`/`RESOLVED`/`REOPENED`), written by `AssessmentReconciler` in the same transaction as its upsert. This is what makes the mutable `assessment` row a rebuildable projection rather than an unlogged source of truth.
+- **`care_loop`** (V16) + `care_loop_assessment` + `care_loop_status_event` (V17) — the correlation root for one condition and everything responding to it. A partial unique index prevents duplicate open loops per correlation key. Status is projected from events, never stored.
+- **`loop_record_scope_event`** (V18) — whether a record is relevant to a given loop. Append-only; effective scope is the latest event for that loop-record pair. Deliberately separate from lifecycle and approval.
+- **`decision`** (V19) + `decision_lifecycle_event` (V20) + `decision_assessment`/`decision_goal` — immutable proposals; an amendment is a new row with `supersedes_decision_id`, and approval is an appended event.
+- **`command`** (V21) + `command_lifecycle_event` (V22) — issued only from an approved decision. A `CHECK (target_type = 'HUMAN')` constraint enforces at the database level that no actuator command can exist, and a unique index on `decision_id` means a retried approval cannot issue a second command.
+- **`execution`** (V23) — what the human actually did, kept separate from what the command requested so "asked for 300ml, gave 200ml" survives as two facts.
+- **`outcome`** (V24) + `outcome_review_event` (V25) + `outcome_evaluation_schedule` — evidence-based evaluation; the schedule is a table rather than an in-memory timer so pending evaluations survive a restart.
+- **`idempotent_request`** (V26) — one row per care-loop MCP write, so a retry replays the stored result instead of re-running the action.
+- **`daily_briefing_snapshot`** (V28) — one immutable structured briefing per greenhouse day. Deliberately *not* unique per day: regeneration creates a new version linked via `supersedes_snapshot_id`.
 
 `goal`, `harvest`, `crop_observation`, and `action` all have real foreign keys to `crop(id)` — unlike `observation`/`device`/`soil_moisture_reading`, they're only ever written through validated domain services, never raw ingestion, so the FK-avoidance rationale doesn't apply (see ADR-009).
 
@@ -161,17 +180,29 @@ REST and MCP tools both call the same domain services directly (`CropService`, `
 - Soil sensor-to-plant assignment and calibration (`greenhouse.soil-sensors.assignments` — five entries, `soil-01`..`soil-05` to Basil/Thyme/Mint/Sage/Oregano, each with a measured `dry-raw-adc`/`wet-raw-adc` reference pair) follows the same configuration-not-database-table pattern, bound via `SoilSensorProperties`. Not yet read by any code path — see ADR-018, ADR-020, and §10.
 - Device status thresholds: `ONLINE` under the current-threshold (2m), `DELAYED` under the offline-threshold (5m), `OFFLINE` beyond it, `UNKNOWN` if never seen. The same thresholds drive `FreshnessStatus` for observations.
 - The four assessment rules (`temperature-operating-limit`, `humidity-operating-limit`, `observation-freshness` — code `OBSERVATION_STALE`, and `device-availability` — code `DEVICE_OFFLINE`) are stateless and evaluate independently; the reconciler is what gives the results statefulness. Severity: environmental limit breaches and staleness are `WARNING`; device offline is `CRITICAL`. A device that has never reported (`UNKNOWN`) does not raise `DEVICE_OFFLINE` — only a previously-seen device going quiet does.
+- Three schedulers run, on deliberately different cadences: `GreenhouseEvaluationScheduler` (1 min — twin, assessments, and care-loop correlation on one clock reading), `OutcomeEvaluationScheduler` (5 min — evaluation windows are hours-scale and per-execution), and `DailyBriefingScheduler` (cron, 06:00 `Europe/London` by default, plus a startup check that recovers a missed run idempotently).
+- Care loops open only once a condition has persisted for the crop's configured excursion duration (default 60 min) and close only after its recovery duration (default 30 min). The assessment itself is raised on the first cycle regardless — that separation is what stops a one-minute blip generating a task without discarding the evidence that it happened. Sensor-quality conditions (not assigned, uncalibrated, stale) are actionable immediately, since they are not transient.
+- Crop temperature assessments across several crops collapse into a single greenhouse-level loop, because ventilating is one physical act regardless of how many crops are affected.
 - Assessment list responses are sorted by severity rank in application code (`AssessmentQueryService`), not via a JPA-derived `ORDER BY` — `AssessmentSeverity` is `EnumType.STRING`, so a raw column sort would be alphabetical rather than by actual severity.
 
 ## 8. MCP agent interface
 
-An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Sixteen tools are exposed:
+An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Twenty-five tools are exposed:
 
 ```
-Read:   get_greenhouse_state, list_crops, get_crop, get_crop_history, list_goals, list_actions
-Write:  create_crop, update_crop, create_goal, record_harvest, record_crop_observation, record_action
+Read:   get_greenhouse_state, list_crops, get_crop, get_crop_history, list_goals, list_actions,
+        get_open_care_loops, get_care_loop, get_daily_crop_status
+Write:  create_crop, update_crop, create_goal, record_harvest, record_crop_observation, record_action,
+        propose_care_decision, record_decision_response, record_command_response,
+        record_care_execution, record_outcome_review, record_loop_scope_override
 Delete: delete_crop, delete_goal, delete_harvest, delete_crop_observation
 ```
+
+The six care-loop write tools each require an `idempotencyKey` and route through one shared `IdempotencyService`: a retry with the same key returns the stored result rather than re-running the action, so a repeated approval cannot issue a second command. A key reused with *different* arguments is rejected as a caller bug rather than silently returning an unrelated result.
+
+Five of them (`record_decision_response`, `record_command_response`, `record_care_execution`, `record_outcome_review`, `record_loop_scope_override`) record a human's answer, and each states in its own tool description that it may only be called after the user has explicitly said so in the current conversation, persisting as `actorType=HUMAN_VIA_AGENT`. That description text is the only thing telling a context-free agent it may not approve on the user's behalf, so `McpServerIntegrationTest` asserts each one actually carries it. `propose_care_decision` is the exception: proposing is genuinely the agent's own act and issues nothing.
+
+There is deliberately **no** generic `update_*`, `execute_sql` or free-query tool; a test asserts their absence.
 
 `delete_crop` only succeeds if the crop has no recorded goals, harvests, observations, or actions — anything with real history must be retired via `update_crop` (`status: ENDED`) instead. The four leaf-record delete tools (`delete_goal`/`delete_harvest`/`delete_crop_observation`, and `Action` once it gets one) are/would be unrestricted, since a single leaf record has no children of its own. See ADR-016 and ADR-017. `Action` has no delete tool yet — not rejected, just not yet requested; it would follow the same unrestricted pattern if added.
 
@@ -195,5 +226,9 @@ Single-page, read-only dashboard at `GET /`, served from `backend/src/main/resou
 - **No authentication on REST or the UI** — only `/mcp` requires a bearer token. Access control for everything else is entirely at the network layer (Tailscale). Acceptable for a single-user home deployment; would need revisiting before any multi-user or public exposure.
 - **`delete_crop` is deliberately narrow.** It only works on crops with zero recorded history — a real crop with goals/harvests/observations/actions can only be retired (`update_crop`, `status: ENDED`), never deleted, short of manually deleting its child records first. No bulk delete, cascade delete, or undo/soft-delete exists for any of the four delete tools.
 - **Local dev and the Pi have independently-managed database credentials and MCP auth tokens** (not shared, not centrally rotated).
-- **Soil moisture calibration data exists but is not yet used for anything.** All 5 sensors are wired, live, and reporting raw ADC to `soil_moisture_reading` (V9) on the same 60s cycle as BME280. Dry/wet calibration reference points have been measured and stored per sensor (`SoilSensorProperties`, ADR-020), but no code path reads them — no moisture percentage, dry/wet classification, twin exposure, assessment, or dashboard presentation exists yet. Those remain deliberately deferred (spec §9) as a distinct future increment.
-- **`greenhouse.soil-sensors.assignments` config exists but is unconsumed.** The sensor-to-plant mapping is bound and validated at startup (`SoilSensorProperties`) but nothing reads it yet — it's there because the spec requires the assignment to be represented somewhere other than firmware now, not because a consumer exists. The first real consumer will likely be the deferred twin/UI exposure work (spec §9).
+- **No control loop into the hardware.** Every command targets a human; the `command` table has a database-level `CHECK` constraint enforcing it. Progressive autonomy is modelled for (an `ActorType.AGENT`, a non-human `targetType`) but no such authority is enabled.
+- **Moisture index is not volumetric water content.** It is a 0–100 position between one probe's own measured dry and wet references. Two probes reading 40 are not necessarily equally wet in absolute terms, and the briefing/tool descriptions say so explicitly to stop it being reported as "percent water".
+- **`SoilSensorProperties` YAML is now bootstrap-only.** ADR-022 moved calibration and assignment into versioned tables; the config block still validates at startup but no runtime path reads it. It should be deleted in a later cleanup once the DB-backed path has proven itself.
+- **The dashboard has not been extended.** Crop status, soil moisture and open care loops are available over REST/MCP but the UI still renders only the original twin/assessment view. `/api/v1/state` is unchanged and backwards-compatible.
+- **Humidity, light and feeding produce no assessments.** Humidity is reported as a measured fact only; there are no configured numeric thresholds or persistence rules for it, and no light sensor exists at all. Feeding/pruning guidance is contextual advice, not a sensor assessment.
+- **Outcome evaluation is deliberately conservative.** A crop with no probe, no readings since the work, or an uncalibrated sensor yields `INCONCLUSIVE` with the reason recorded, never an assumed success.
