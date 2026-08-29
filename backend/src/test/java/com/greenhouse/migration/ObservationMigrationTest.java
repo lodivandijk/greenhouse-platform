@@ -42,4 +42,32 @@ class ObservationMigrationTest {
 
         assertThat(successCount).isEqualTo(1);
     }
+
+    @Test
+    void soilMoistureReadingTableHasExpectedColumns() {
+        List<String> columns = jdbcTemplate.queryForList(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+                String.class,
+                "soil_moisture_reading"
+        );
+
+        assertThat(columns).contains(
+                "device_id",
+                "sensor_id",
+                "raw_adc",
+                "millivolts",
+                "received_at"
+        );
+    }
+
+    @Test
+    void flywayMigrationV9AppliedSuccessfully() {
+        Integer successCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = ? AND success = true",
+                Integer.class,
+                "9"
+        );
+
+        assertThat(successCount).isEqualTo(1);
+    }
 }

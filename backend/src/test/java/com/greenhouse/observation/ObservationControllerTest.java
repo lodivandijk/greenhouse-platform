@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -110,5 +111,125 @@ class ObservationControllerTest {
     void returnsNotFoundForUnknownDevice() throws Exception {
         mockMvc.perform(get("/api/v1/observations/" + uniqueDeviceId()))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void acceptsPayloadWithOneSoilSensorAndItIsRetrievable() throws Exception {
+        String deviceId = uniqueDeviceId();
+        String sensorId = "test-sensor-" + UUID.randomUUID();
+        ObservationRequest request = new ObservationRequest(
+                deviceId, 21.8, 68.4, 1014.2,
+                List.of(new SoilMoistureReadingRequest(sensorId, 2870))
+        );
+
+        mockMvc.perform(post("/api/v1/observations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isAccepted());
+
+        mockMvc.perform(get("/api/v1/soil-moisture-readings").param("sensorId", sensorId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].sensorId").value(sensorId))
+                .andExpect(jsonPath("$[0].rawAdc").value(2870))
+                .andExpect(jsonPath("$[0].deviceId").value(deviceId));
+    }
+
+    @Test
+    void acceptsPayloadWithAnEmptySoilMoistureArray() throws Exception {
+        String deviceId = uniqueDeviceId();
+        ObservationRequest request = new ObservationRequest(deviceId, 21.0, 60.0, 1010.0, List.of());
+
+        mockMvc.perform(post("/api/v1/observations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
+    void rejectsRawAdcAboveFourThousandNinetyFive() throws Exception {
+        String deviceId = uniqueDeviceId();
+        ObservationRequest request = new ObservationRequest(
+                deviceId, 21.0, 60.0, 1010.0,
+                List.of(new SoilMoistureReadingRequest("test-sensor-" + UUID.randomUUID(), 4096))
+        );
+
+        mockMvc.perform(post("/api/v1/observations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rejectsNegativeRawAdc() throws Exception {
+        String deviceId = uniqueDeviceId();
+        ObservationRequest request = new ObservationRequest(
+                deviceId, 21.0, 60.0, 1010.0,
+                List.of(new SoilMoistureReadingRequest("test-sensor-" + UUID.randomUUID(), -1))
+        );
+
+        mockMvc.perform(post("/api/v1/observations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rejectsBlankSensorId() throws Exception {
+        String deviceId = uniqueDeviceId();
+        ObservationRequest request = new ObservationRequest(
+                deviceId, 21.0, 60.0, 1010.0,
+                List.of(new SoilMoistureReadingRequest("", 2870))
+        );
+
+        mockMvc.perform(post("/api/v1/observations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rejectsDuplicateSensorIdsInOnePayload() throws Exception {
+        String deviceId = uniqueDeviceId();
+        String sensorId = "test-sensor-" + UUID.randomUUID();
+        ObservationRequest request = new ObservationRequest(
+                deviceId, 21.0, 60.0, 1010.0,
+                List.of(
+                        new SoilMoistureReadingRequest(sensorId, 2870),
+                        new SoilMoistureReadingRequest(sensorId, 2900)
+                )
+        );
+
+        mockMvc.perform(post("/api/v1/observations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void persistsThreeSoilSensorsFromOneCycleWithoutOverwriting() throws Exception {
+        String deviceId = uniqueDeviceId();
+        String sensor1 = "test-sensor-" + UUID.randomUUID();
+        String sensor2 = "test-sensor-" + UUID.randomUUID();
+        String sensor3 = "test-sensor-" + UUID.randomUUID();
+        ObservationRequest request = new ObservationRequest(
+                deviceId, 21.0, 60.0, 1010.0,
+                List.of(
+                        new SoilMoistureReadingRequest(sensor1, 2870),
+                        new SoilMoistureReadingRequest(sensor2, 2915),
+                        new SoilMoistureReadingRequest(sensor3, 2842)
+                )
+        );
+
+        mockMvc.perform(post("/api/v1/observations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isAccepted());
+
+        mockMvc.perform(get("/api/v1/soil-moisture-readings").param("sensorId", sensor1))
+                .andExpect(jsonPath("$[0].rawAdc").value(2870));
+        mockMvc.perform(get("/api/v1/soil-moisture-readings").param("sensorId", sensor2))
+                .andExpect(jsonPath("$[0].rawAdc").value(2915));
+        mockMvc.perform(get("/api/v1/soil-moisture-readings").param("sensorId", sensor3))
+                .andExpect(jsonPath("$[0].rawAdc").value(2842));
     }
 }

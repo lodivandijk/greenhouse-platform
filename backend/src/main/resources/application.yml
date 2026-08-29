@@ -15,6 +15,19 @@ greenhouse:
         device-ids:
           - greenhouse-esp32-01
 
+  soil-sensors:
+    assignments:
+      - sensor-id: soil-01
+        plant: Basil
+      - sensor-id: soil-02
+        plant: Thyme
+      - sensor-id: soil-03
+        plant: Mint
+      - sensor-id: soil-04
+        plant: Sage
+      - sensor-id: soil-05
+        plant: Oregano
+
   evaluation:
     enabled: true
     interval: PT1M

@@ -42,7 +42,7 @@ ESP32-PICO-KIT + BME280            Raspberry Pi (greenhouse-pi, Tailscale 100.77
 ```
 com.greenhouse.heartbeat     Device connectivity heartbeats (ingestion)
 com.greenhouse.device        Device registry / connectivity status (persisted)
-com.greenhouse.observation   Environmental readings (persisted, append-only)
+com.greenhouse.observation   Environmental readings + soil moisture telemetry (persisted, append-only)
 com.greenhouse.twin          Digital Twin — current factual state, assembled per request
 com.greenhouse.assessment    Assessment Engine — interpretation, persisted lifecycle
 com.greenhouse.evaluation    Scheduler + coordinator orchestrating twin → assessment
@@ -106,7 +106,7 @@ Two independent triggers read/write this pipeline:
 
 ## 5. Persistence
 
-PostgreSQL, eight tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
+PostgreSQL, nine tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
 
 - **`observation`** (V1) — append-only log. One row per accepted reading: `device_id`, `temperature_celsius`, `humidity_percent`, `pressure_hpa`, `received_at`. Rows are never updated or deleted by the ingestion path. No foreign key to `device` (ingestion must keep working even if a device record is temporarily missing).
 - **`device`** (V2) — one mutable row per device, natural key (`device_id`, no surrogate id): `software_version`, `first_seen_at`, `last_seen_at`, `last_ip_address`, `last_signal_strength_dbm`, `last_uptime_seconds`, `heartbeat_count`, `enabled`, `updated_at`. `online` is never stored — always derived at read time from `last_seen_at`.
@@ -116,8 +116,9 @@ PostgreSQL, eight tables via Flyway migrations (`backend/src/main/resources/db/m
 - **`harvest`** (V6) — `crop_id` (FK), `harvested_at`, `quantity` + `unit` (`GRAMS`/`KILOGRAMS`/`COUNT` — always paired, never a bare number), `notes`.
 - **`crop_observation`** (V7) — `crop_id` (FK), `metric` (enum + `OTHER`), `value_type` (`NUMERIC`/`TEXT`/`BOOLEAN`) discriminating exactly one of `numeric_value`/`text_value`/`boolean_value`, `unit`, `source` (`HUMAN`/`AI_DERIVED`/`DERIVED`/`EXTERNAL`), `confidence`, `observed_at`, `notes`, `metadata_json` (JSONB).
 - **`action`** (V8) — `crop_id` (FK), `type` (enum: `WATER`/`FEED`/`PRUNE`/`POLLINATE`/`MOVE`/`PLANT`/`OTHER`), `description`, `quantity` + `unit` (quantity requires unit, same "never a bare number" rule as `harvest`), `performed_at`, `performed_by` (`HUMAN`/`AGENT`/`AUTOMATION`/`SYSTEM`, defaults to `HUMAN`), `created_at`.
+- **`soil_moisture_reading`** (V9) — append-only log, one row per physical probe per observation cycle: `device_id`, `sensor_id` (the probe's stable identity, e.g. `soil-01`), `raw_adc` (`INTEGER CHECK (raw_adc BETWEEN 0 AND 4095)`), `millivolts` (nullable, unpopulated until calibration work lands), `received_at`. No foreign key to `observation` or `crop` — see ADR-018 for why the two telemetry tables stay independent rather than parent/child. No `observed_at`: the firmware has no wall-clock time source yet, so only backend-assigned `received_at` is stored.
 
-`goal`, `harvest`, `crop_observation`, and `action` all have real foreign keys to `crop(id)` — unlike `observation`/`device`, they're only ever written through validated domain services, never raw ingestion, so the FK-avoidance rationale doesn't apply (see ADR-009).
+`goal`, `harvest`, `crop_observation`, and `action` all have real foreign keys to `crop(id)` — unlike `observation`/`device`/`soil_moisture_reading`, they're only ever written through validated domain services, never raw ingestion, so the FK-avoidance rationale doesn't apply (see ADR-009).
 
 ## 6. APIs
 
@@ -128,10 +129,11 @@ All under the same origin as the UI (`http://<host>:8080`), no CORS configuratio
 | `POST` | `/api/v1/heartbeats` (also `/api/heartbeats`) | Device connectivity heartbeat |
 | `GET` | `/api/v1/devices` | All known devices |
 | `GET` | `/api/v1/devices/{deviceId}` | One device |
-| `POST` | `/api/v1/observations` (also `/api/observations`) | Submit an environmental reading |
+| `POST` | `/api/v1/observations` (also `/api/observations`) | Submit an environmental reading, with an optional `soilMoisture` array (`{sensorId, rawAdc}`) |
 | `GET` | `/api/v1/observations` | All observations |
 | `GET` | `/api/v1/observations/latest` | Most recent observation |
 | `GET` | `/api/v1/observations/{deviceId}` | Most recent observation for one device |
+| `GET` | `/api/v1/soil-moisture-readings`, `/api/v1/soil-moisture-readings?sensorId=` | List soil moisture readings (optionally filtered by sensor, newest first) |
 | `GET` | `/api/v1/twin` | Current facts-only Digital Twin |
 | `GET` | `/api/v1/assessments?status=` | Active (default) or resolved assessments |
 | `GET` | `/api/v1/state` | Composed twin + active assessments (read-only, no reconciliation side effect) |
@@ -156,6 +158,7 @@ REST and MCP tools both call the same domain services directly (`CropService`, `
 ## 7. Runtime behaviour
 
 - Greenhouse topology — greenhouse id/name, zones, which device ids belong to which zone, environmental limits (min/max temperature and humidity), and the current/offline timing thresholds — is **configuration** (`application.yml`, `greenhouse.twin.*`), not a database table. Currently one greenhouse, one zone (`zone-main`), one device (`greenhouse-esp32-01`). An acknowledged trade-off, expected to move to persisted configuration if device count grows materially.
+- Soil sensor-to-plant assignment (`greenhouse.soil-sensors.assignments` — five entries, `soil-01`..`soil-05` to Basil/Thyme/Mint/Sage/Oregano) follows the same configuration-not-database-table pattern, bound via `SoilSensorProperties`. Not yet read by any code path — see ADR-018 and §10.
 - Device status thresholds: `ONLINE` under the current-threshold (2m), `DELAYED` under the offline-threshold (5m), `OFFLINE` beyond it, `UNKNOWN` if never seen. The same thresholds drive `FreshnessStatus` for observations.
 - The four assessment rules (`temperature-operating-limit`, `humidity-operating-limit`, `observation-freshness` — code `OBSERVATION_STALE`, and `device-availability` — code `DEVICE_OFFLINE`) are stateless and evaluate independently; the reconciler is what gives the results statefulness. Severity: environmental limit breaches and staleness are `WARNING`; device offline is `CRITICAL`. A device that has never reported (`UNKNOWN`) does not raise `DEVICE_OFFLINE` — only a previously-seen device going quiet does.
 - Assessment list responses are sorted by severity rank in application code (`AssessmentQueryService`), not via a JPA-derived `ORDER BY` — `AssessmentSeverity` is `EnumType.STRING`, so a raw column sort would be alphabetical rather than by actual severity.
@@ -192,3 +195,5 @@ Single-page, read-only dashboard at `GET /`, served from `backend/src/main/resou
 - **No authentication on REST or the UI** — only `/mcp` requires a bearer token. Access control for everything else is entirely at the network layer (Tailscale). Acceptable for a single-user home deployment; would need revisiting before any multi-user or public exposure.
 - **`delete_crop` is deliberately narrow.** It only works on crops with zero recorded history — a real crop with goals/harvests/observations/actions can only be retired (`update_crop`, `status: ENDED`), never deleted, short of manually deleting its child records first. No bulk delete, cascade delete, or undo/soft-delete exists for any of the four delete tools.
 - **Local dev and the Pi have independently-managed database credentials and MCP auth tokens** (not shared, not centrally rotated).
+- **Soil moisture telemetry is backend-only so far.** `soil_moisture_reading` (V9) and the `POST /api/v1/observations` `soilMoisture` field exist and are tested for all five sensors, but the ESP32 firmware does not send this field yet — it's still Phase A (Serial-only diagnostics; `soil-01`..`soil-04`/GPIO34-33-32-35 are physically wired, `soil-05`/GPIO36 is not yet), per `docs/architecture/soil-moisture-sensor-integration-v2-spec.md` and ADR-018. No calibration, moisture percentage, dry/wet assessment, twin exposure, or dashboard presentation exists yet — only raw ADC values, once the firmware is updated to transmit them.
+- **`greenhouse.soil-sensors.assignments` config exists but is unconsumed.** The sensor-to-plant mapping is bound and validated at startup (`SoilSensorProperties`) but nothing reads it yet — it's there because the spec requires the assignment to be represented somewhere other than firmware now, not because a consumer exists. The first real consumer will likely be the deferred twin/UI exposure work (spec §9).

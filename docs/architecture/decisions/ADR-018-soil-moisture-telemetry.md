@@ -1,0 +1,43 @@
+# ADR-018: Soil Moisture Telemetry as a Dedicated Table
+
+**Status:** Accepted
+**Date:** 2026-08-29
+
+## Context
+
+Five capacitive soil-moisture probes are being added to the ESP32 node, one per herb (basil, thyme, mint, sage, oregano), per `docs/architecture/soil-moisture-sensor-integration-v2-spec.md` (which superseded a v1 draft scoped to 3 probes — the persistence design below is unchanged by that revision; only the sensor count, IDs, and the sensor-to-plant assignment requirement in the Decision section below are new; a planned sixth probe, tarragon, was later dropped when it turned out only 5 physical sensors were available). Phase A (firmware-only, bench-test diagnostics over Serial) is validated on real hardware for sensors 1-4. Phase B needs the raw 12-bit ADC readings to reach PostgreSQL, backward-compatibly, without disturbing the working BME280/heartbeat/twin/assessment/UI path.
+
+Two existing models were considered and rejected before introducing a new one, per this repo's rule against parallel models that duplicate an existing capability:
+
+- **Adding fixed columns to `observation`** (`soil_1` .. `soil_5`): rejected outright, both by the spec and on its own merits — it hardcodes an exact sensor count into the schema and leaves most rows partially `NULL` for any device without all five probes wired.
+- **Reusing `CropObservationMetric`** (ADR-011's flexible crop-observation vocabulary): rejected. That model exists for human-entered biological evidence about a specific crop (stem woodiness, Brix, flower count) and is deliberately crop-scoped (`crop_id`-keyed). Soil moisture readings are automated hardware telemetry keyed by device/sensor, not crop, and ADR-009 already drew a hard line between raw telemetry and the crop domain — collapsing that line here to save one migration would undo that boundary for no real gain.
+
+No existing generic raw-telemetry abstraction was found (`observation` itself is a fixed-column BME280 record, not a generic reading model), so a new table is warranted.
+
+## Decision
+
+A new `soil_moisture_reading` table (migration V9), with its own JPA entity/repository in `com.greenhouse.observation` — the same package as `ObservationEntity`, not a new top-level package. Unlike `Goal`/`Action` (ADR-010, ADR-017), soil moisture readings aren't a forward-facing domain concept; they're the same kind of thing as a BME280 reading — a hardware fact — so they belong with it.
+
+Fields: `id`, `device_id`, `sensor_id`, `raw_adc` (`INTEGER CHECK (raw_adc BETWEEN 0 AND 4095)`), `millivolts` (nullable, unpopulated until calibration work), `received_at`. **No `observed_at` column** — the spec's own field table lists one, but the ESP32 firmware has no wall-clock or NTP time source at all today (only `millis()` uptime, confirmed by inspection). Adding `observed_at` now would just duplicate `received_at` under a name that falsely implies the device measured the time itself. It can be added later as a nullable column, non-breaking, once the firmware actually gains a real time source — deferring it is more honest than manufacturing a fact that doesn't exist yet.
+
+**No foreign key to `observation`.** Both readings arrive in the same HTTP envelope and are timestamped identically (`received_at` shared from one `Instant` per request), but they remain two independent tables rather than parent/child. A BME280 failure or a soil-sensor failure must not block the other (spec §7) — a hard FK would eventually pressure that decoupling, e.g. needing a placeholder observation row for a soil-only payload. `sensor_id` is the durable identity; correlating readings from the same cycle by `device_id` + `received_at` is possible without an FK if ever needed.
+
+`ObservationRequest` gains an optional `soilMoisture` field (a list of `{sensorId, rawAdc}`), defaulting to absent/empty so pre-existing firmware payloads remain valid — enforced by keeping the old 4-argument constructor alongside the new 5-argument canonical one, and by never requiring the field in the JSON. Per-item validation (`sensorId` non-blank, `rawAdc` 0–4095) is plain bean validation (`@Valid` cascading into the list); cross-item uniqueness (no duplicate `sensorId` in one payload) is a service-layer check, since bean validation can't express cross-element constraints on its own.
+
+`ObservationService.record(...)` is wrapped in a single `@Transactional` (the second use of `@Transactional` in this codebase, after `AssessmentReconciler`) so one HTTP envelope's BME reading and all its soil readings commit or fail together — a mid-batch failure never leaves a partial set of soil readings, or a BME reading with no matching soil data, sitting in the database.
+
+A minimal read surface, `GET /api/v1/soil-moisture-readings` (optional `sensorId` filter, newest-first), mirrors `Action`'s flat-REST-with-optional-filter shape (ADR-017) — added so this phase is actually verifiable end-to-end over HTTP, matching the fact that every other persisted concept in this codebase has at least a basic read API.
+
+**Sensor-to-plant assignment lives in Pi-side configuration, not firmware or the database.** The v2 spec is explicit (§4.2): `soil-01`..`soil-05` are durable hardware identity; which plant a sensor currently monitors must be changeable without a reflash. Three placements were possible — hardcode it in firmware (explicitly forbidden by the spec, and it would force a reflash every time a probe moves to a different pot), model it in the `crop` domain (rejected: no `Crop` row for these herbs exists yet, and wiring soil telemetry into the crop domain now would be exactly the premature twin/crop coupling §6.4/§9 of the spec defer), or Pi-side configuration, matching the already-established precedent for "which physical thing maps to which logical thing" — greenhouse topology, zones, and device-to-zone mapping already live in `application.yml` (§7 of `CURRENT_ARCHITECTURE.md`), not a database table. `SoilSensorProperties` (`com.greenhouse.observation.config`, prefix `greenhouse.soil-sensors`) follows that precedent exactly, mirroring `TwinProperties`'/`ZoneProperties`' record-based `@ConfigurationProperties` style, including fail-fast validation (duplicate `sensorId` throws at startup, matching `TwinProperties`' compact-constructor checks). Nothing consumes this config yet — it exists purely as the "represent the assignment somewhere" artifact the spec requires now; wiring it into the twin/state/UI is explicitly deferred (spec §9), so no new API exposes it yet.
+
+## Consequences
+
+- Ninth persisted table (unchanged by the sensor-count churn — 3 in v1, briefly 6, settled at 5 — since `sensor_id` is a plain string column, not an enum or a fixed set of columns, so no schema change was ever needed regardless of sensor count). No twin, assessment, or UI change — those stay deferred until calibration (spec §8–9), so raw ADC values are the only fact this increment exposes anywhere.
+- The ESP32 firmware itself is **not yet** changed to transmit `soilMoisture` — this ADR covers the backend contract only. Sending real readings is the next, separate step, and per the spec's own deployment sequence, this backend change must reach the Pi *before* the firmware is updated to use it.
+- `ObservationService` now owns two related but independent persistence concerns (BME observations, soil readings) in one class, justified by their shared HTTP envelope and transaction; if soil telemetry grows further (e.g. its own retrieval/aggregation logic), revisit whether it deserves its own service.
+- No cascade-delete or referential-integrity coupling between `observation` and `soil_moisture_reading` rows — an accepted trade-off for keeping the two sensor types independently failable.
+- A new `greenhouse.soil-sensors.assignments` config block exists alongside `greenhouse.twin.*`, unread by any code path yet — a rare case of configuration preceding its consumer, justified directly by the spec's own explicit requirement rather than speculative design.
+
+## Related / superseded decisions
+
+Extends ADR-001 (persist observations) to a second raw-telemetry shape. Preserves the raw-telemetry/crop-domain boundary drawn in ADR-009, deliberately declining to reuse ADR-011's crop-observation vocabulary even though both are "flexible fact" models, because they answer different questions (what a device measured vs. what a person observed about a crop). Reuses the flat-REST-with-optional-filter convention from ADR-017, the `@Transactional`-batch precedent from `AssessmentReconciler`, and the YAML-configuration-over-database-table precedent already established for greenhouse topology/zones (`TwinProperties`/`ZoneProperties`, `CURRENT_ARCHITECTURE.md` §7) for the sensor-to-plant assignment.
