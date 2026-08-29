@@ -3,10 +3,14 @@ package com.greenhouse.assessment.reconciliation;
 import com.greenhouse.assessment.AssessmentChanges;
 import com.greenhouse.assessment.AssessmentEntity;
 import com.greenhouse.assessment.AssessmentFinding;
+import com.greenhouse.assessment.AssessmentLifecycleEvent;
+import com.greenhouse.assessment.AssessmentLifecycleEventRepository;
+import com.greenhouse.assessment.AssessmentLifecycleEventType;
 import com.greenhouse.assessment.AssessmentMapper;
 import com.greenhouse.assessment.AssessmentRepository;
 import com.greenhouse.assessment.AssessmentResponse;
 import com.greenhouse.assessment.AssessmentStatus;
+import com.greenhouse.careloop.ActorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -25,13 +29,22 @@ public class AssessmentReconciler {
     private static final Logger LOGGER = LoggerFactory.getLogger(AssessmentReconciler.class);
 
     private final AssessmentRepository assessmentRepository;
+    private final AssessmentLifecycleEventRepository lifecycleEventRepository;
     private final AssessmentMapper assessmentMapper;
 
-    public AssessmentReconciler(AssessmentRepository assessmentRepository, AssessmentMapper assessmentMapper) {
+    public AssessmentReconciler(
+            AssessmentRepository assessmentRepository,
+            AssessmentLifecycleEventRepository lifecycleEventRepository,
+            AssessmentMapper assessmentMapper
+    ) {
         this.assessmentRepository = assessmentRepository;
+        this.lifecycleEventRepository = lifecycleEventRepository;
         this.assessmentMapper = assessmentMapper;
     }
 
+    // The assessment row is a mutable projection; assessment_lifecycle_event is
+    // the append-only source of truth. Both are written in this one transaction,
+    // so the projection can never drift from its own history (ADR-021).
     @Transactional
     public AssessmentChanges reconcile(String greenhouseId, List<AssessmentFinding> findings, Instant evaluatedAt) {
         List<AssessmentEntity> activeAssessments =
@@ -52,6 +65,7 @@ public class AssessmentReconciler {
 
             if (existing == null) {
                 AssessmentEntity created = assessmentRepository.save(raise(finding, evaluatedAt));
+                recordEvent(created, AssessmentLifecycleEventType.RAISED, evaluatedAt);
                 raised.add(assessmentMapper.toResponse(created));
                 LOGGER.info(
                         "Assessment raised: correlationKey={} code={} severity={}",
@@ -61,6 +75,7 @@ public class AssessmentReconciler {
                 boolean severityChanged = existing.getSeverity() != finding.severity();
                 applyUpdate(existing, finding, evaluatedAt);
                 AssessmentEntity saved = assessmentRepository.save(existing);
+                recordEvent(saved, AssessmentLifecycleEventType.UPDATED, evaluatedAt);
                 updated.add(assessmentMapper.toResponse(saved));
                 if (severityChanged) {
                     LOGGER.info(
@@ -75,6 +90,7 @@ public class AssessmentReconciler {
             if (!findingsByCorrelationKey.containsKey(active.getCorrelationKey())) {
                 applyResolve(active, evaluatedAt);
                 AssessmentEntity saved = assessmentRepository.save(active);
+                recordEvent(saved, AssessmentLifecycleEventType.RESOLVED, evaluatedAt);
                 resolved.add(assessmentMapper.toResponse(saved));
                 LOGGER.info("Assessment resolved: correlationKey={}", saved.getCorrelationKey());
             }
@@ -83,8 +99,14 @@ public class AssessmentReconciler {
         return new AssessmentChanges(raised, updated, resolved);
     }
 
+    private void recordEvent(AssessmentEntity entity, AssessmentLifecycleEventType eventType, Instant occurredAt) {
+        lifecycleEventRepository.save(AssessmentLifecycleEvent.snapshotOf(
+                entity, eventType, occurredAt, ActorType.DETERMINISTIC_ENGINE
+        ));
+    }
+
     private AssessmentEntity raise(AssessmentFinding finding, Instant evaluatedAt) {
-        return new AssessmentEntity(
+        AssessmentEntity entity = new AssessmentEntity(
                 null,
                 finding.correlationKey(),
                 finding.greenhouseId(),
@@ -106,6 +128,8 @@ public class AssessmentReconciler {
                 evaluatedAt,
                 evaluatedAt
         );
+        applyCropContext(entity, finding);
+        return entity;
     }
 
     private void applyUpdate(AssessmentEntity existing, AssessmentFinding finding, Instant evaluatedAt) {
@@ -117,6 +141,15 @@ public class AssessmentReconciler {
         existing.setLastDetectedAt(evaluatedAt);
         existing.setLastEvaluatedAt(evaluatedAt);
         existing.setUpdatedAt(evaluatedAt);
+        applyCropContext(existing, finding);
+    }
+
+    private void applyCropContext(AssessmentEntity entity, AssessmentFinding finding) {
+        entity.setCropId(finding.cropId());
+        entity.setMonitoringProfileId(finding.monitoringProfileId());
+        entity.setMonitoringProfileVersion(finding.monitoringProfileVersion());
+        entity.setCalibrationId(finding.calibrationId());
+        entity.setCalibrationVersion(finding.calibrationVersion());
     }
 
     private void applyResolve(AssessmentEntity active, Instant evaluatedAt) {

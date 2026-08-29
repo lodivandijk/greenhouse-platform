@@ -85,6 +85,25 @@ public class AssessmentEntity {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
+    // Crop context, populated only by crop-aware rules. The four zone/device
+    // rules leave these null and are unaffected. Recording which profile and
+    // calibration VERSION produced an assessment is what stops a later
+    // recalibration from silently rewriting historical evidence (ADR-021).
+    @Column(name = "crop_id")
+    private Long cropId;
+
+    @Column(name = "monitoring_profile_id")
+    private Long monitoringProfileId;
+
+    @Column(name = "monitoring_profile_version")
+    private Integer monitoringProfileVersion;
+
+    @Column(name = "calibration_id")
+    private Long calibrationId;
+
+    @Column(name = "calibration_version")
+    private Integer calibrationVersion;
+
     public AssessmentEntity() {
     }
 
@@ -290,5 +309,45 @@ public class AssessmentEntity {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Long getCropId() {
+        return cropId;
+    }
+
+    public void setCropId(Long cropId) {
+        this.cropId = cropId;
+    }
+
+    public Long getMonitoringProfileId() {
+        return monitoringProfileId;
+    }
+
+    public void setMonitoringProfileId(Long monitoringProfileId) {
+        this.monitoringProfileId = monitoringProfileId;
+    }
+
+    public Integer getMonitoringProfileVersion() {
+        return monitoringProfileVersion;
+    }
+
+    public void setMonitoringProfileVersion(Integer monitoringProfileVersion) {
+        this.monitoringProfileVersion = monitoringProfileVersion;
+    }
+
+    public Long getCalibrationId() {
+        return calibrationId;
+    }
+
+    public void setCalibrationId(Long calibrationId) {
+        this.calibrationId = calibrationId;
+    }
+
+    public Integer getCalibrationVersion() {
+        return calibrationVersion;
+    }
+
+    public void setCalibrationVersion(Integer calibrationVersion) {
+        this.calibrationVersion = calibrationVersion;
     }
 }

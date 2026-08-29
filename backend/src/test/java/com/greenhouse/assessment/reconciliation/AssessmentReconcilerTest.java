@@ -4,14 +4,19 @@ import com.greenhouse.assessment.AssessmentChanges;
 import com.greenhouse.assessment.AssessmentCode;
 import com.greenhouse.assessment.AssessmentEntity;
 import com.greenhouse.assessment.AssessmentFinding;
+import com.greenhouse.assessment.AssessmentLifecycleEvent;
+import com.greenhouse.assessment.AssessmentLifecycleEventRepository;
+import com.greenhouse.assessment.AssessmentLifecycleEventType;
 import com.greenhouse.assessment.AssessmentMapper;
 import com.greenhouse.assessment.AssessmentRepository;
 import com.greenhouse.assessment.AssessmentScopeType;
 import com.greenhouse.assessment.AssessmentSeverity;
 import com.greenhouse.assessment.AssessmentStatus;
+import com.greenhouse.careloop.ActorType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -21,6 +26,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -32,12 +39,15 @@ class AssessmentReconcilerTest {
     @Mock
     private AssessmentRepository assessmentRepository;
 
+    @Mock
+    private AssessmentLifecycleEventRepository lifecycleEventRepository;
+
     private final AssessmentMapper assessmentMapper = new AssessmentMapper();
     private AssessmentReconciler reconciler;
 
     @BeforeEach
     void setUp() {
-        reconciler = new AssessmentReconciler(assessmentRepository, assessmentMapper);
+        reconciler = new AssessmentReconciler(assessmentRepository, lifecycleEventRepository, assessmentMapper);
         when(assessmentRepository.save(any(AssessmentEntity.class))).thenAnswer(invocation -> {
             AssessmentEntity entity = invocation.getArgument(0);
             if (entity.getId() == null) {
@@ -162,5 +172,111 @@ class AssessmentReconcilerTest {
         assertThat(changes.updated()).hasSize(1);
         assertThat(changes.updated().get(0).id()).isEqualTo(1L);
         assertThat(changes.updated().get(0).severity()).isEqualTo(AssessmentSeverity.CRITICAL);
+    }
+
+    @Test
+    void raisingAnAssessment_appendsARaisedLifecycleEvent() {
+        when(assessmentRepository.findAllByGreenhouseIdAndStatus(GREENHOUSE_ID, AssessmentStatus.ACTIVE))
+                .thenReturn(List.of());
+
+        reconciler.reconcile(
+                GREENHOUSE_ID,
+                List.of(finding(AssessmentCode.TEMPERATURE_ABOVE_LIMIT, "key-1", AssessmentSeverity.WARNING)),
+                EVALUATED_AT
+        );
+
+        ArgumentCaptor<AssessmentLifecycleEvent> captor = ArgumentCaptor.forClass(AssessmentLifecycleEvent.class);
+        verify(lifecycleEventRepository).save(captor.capture());
+
+        AssessmentLifecycleEvent event = captor.getValue();
+        assertThat(event.getEventType()).isEqualTo(AssessmentLifecycleEventType.RAISED);
+        assertThat(event.getCorrelationKey()).isEqualTo("key-1");
+        assertThat(event.getStatus()).isEqualTo(AssessmentStatus.ACTIVE);
+        assertThat(event.getOccurredAt()).isEqualTo(EVALUATED_AT);
+        assertThat(event.getActorType()).isEqualTo(ActorType.DETERMINISTIC_ENGINE);
+    }
+
+    @Test
+    void resolvingAnAssessment_appendsAResolvedLifecycleEventCarryingAFullSnapshot() {
+        Instant firstDetected = EVALUATED_AT.minusSeconds(600);
+        AssessmentEntity existing =
+                activeEntity(7L, "key-gone", AssessmentCode.DEVICE_OFFLINE, AssessmentSeverity.CRITICAL, firstDetected);
+
+        when(assessmentRepository.findAllByGreenhouseIdAndStatus(GREENHOUSE_ID, AssessmentStatus.ACTIVE))
+                .thenReturn(List.of(existing));
+
+        reconciler.reconcile(GREENHOUSE_ID, List.of(), EVALUATED_AT);
+
+        ArgumentCaptor<AssessmentLifecycleEvent> captor = ArgumentCaptor.forClass(AssessmentLifecycleEvent.class);
+        verify(lifecycleEventRepository).save(captor.capture());
+
+        AssessmentLifecycleEvent event = captor.getValue();
+        assertThat(event.getEventType()).isEqualTo(AssessmentLifecycleEventType.RESOLVED);
+        assertThat(event.getAssessmentId()).isEqualTo(7L);
+        assertThat(event.getStatus()).isEqualTo(AssessmentStatus.RESOLVED);
+        assertThat(event.getResolvedAt()).isEqualTo(EVALUATED_AT);
+        // A full snapshot, not a diff - this is what makes the mutable
+        // assessment row genuinely rebuildable from its own history.
+        assertThat(event.getSeverity()).isEqualTo(AssessmentSeverity.CRITICAL);
+        assertThat(event.getCode()).isEqualTo(AssessmentCode.DEVICE_OFFLINE);
+        assertThat(event.getFirstDetectedAt()).isEqualTo(firstDetected);
+    }
+
+    @Test
+    void everyTransitionAppendsExactlyOneEvent() {
+        Instant firstDetected = EVALUATED_AT.minusSeconds(300);
+        AssessmentEntity persisting =
+                activeEntity(1L, "key-stays", AssessmentCode.TEMPERATURE_ABOVE_LIMIT, AssessmentSeverity.WARNING, firstDetected);
+        AssessmentEntity vanishing =
+                activeEntity(2L, "key-gone", AssessmentCode.HUMIDITY_BELOW_LIMIT, AssessmentSeverity.WARNING, firstDetected);
+
+        when(assessmentRepository.findAllByGreenhouseIdAndStatus(GREENHOUSE_ID, AssessmentStatus.ACTIVE))
+                .thenReturn(List.of(persisting, vanishing));
+
+        // one still present (UPDATED), one gone (RESOLVED), one brand new (RAISED)
+        reconciler.reconcile(
+                GREENHOUSE_ID,
+                List.of(
+                        finding(AssessmentCode.TEMPERATURE_ABOVE_LIMIT, "key-stays", AssessmentSeverity.WARNING),
+                        finding(AssessmentCode.OBSERVATION_STALE, "key-new", AssessmentSeverity.WARNING)
+                ),
+                EVALUATED_AT
+        );
+
+        ArgumentCaptor<AssessmentLifecycleEvent> captor = ArgumentCaptor.forClass(AssessmentLifecycleEvent.class);
+        verify(lifecycleEventRepository, times(3)).save(captor.capture());
+
+        assertThat(captor.getAllValues())
+                .extracting(AssessmentLifecycleEvent::getEventType)
+                .containsExactlyInAnyOrder(
+                        AssessmentLifecycleEventType.UPDATED,
+                        AssessmentLifecycleEventType.RAISED,
+                        AssessmentLifecycleEventType.RESOLVED
+                );
+    }
+
+    @Test
+    void cropContextFromFindingIsCarriedOntoTheAssessment() {
+        when(assessmentRepository.findAllByGreenhouseIdAndStatus(GREENHOUSE_ID, AssessmentStatus.ACTIVE))
+                .thenReturn(List.of());
+
+        AssessmentFinding cropFinding = new AssessmentFinding(
+                AssessmentCode.CROP_SOIL_MOISTURE_LOW, AssessmentSeverity.WARNING, AssessmentScopeType.CROP,
+                "8", GREENHOUSE_ID, "zone-main", null, "Basil soil is dry.", Map.of("moistureIndex", 12.0),
+                "crop-soil-moisture", 1, "CROP:8:SOIL_MOISTURE_LOW",
+                8L, 55L, 2, 77L, 3
+        );
+
+        reconciler.reconcile(GREENHOUSE_ID, List.of(cropFinding), EVALUATED_AT);
+
+        ArgumentCaptor<AssessmentLifecycleEvent> captor = ArgumentCaptor.forClass(AssessmentLifecycleEvent.class);
+        verify(lifecycleEventRepository).save(captor.capture());
+
+        AssessmentLifecycleEvent event = captor.getValue();
+        assertThat(event.getCropId()).isEqualTo(8L);
+        assertThat(event.getMonitoringProfileId()).isEqualTo(55L);
+        assertThat(event.getMonitoringProfileVersion()).isEqualTo(2);
+        assertThat(event.getCalibrationId()).isEqualTo(77L);
+        assertThat(event.getCalibrationVersion()).isEqualTo(3);
     }
 }
