@@ -1,12 +1,14 @@
 package com.greenhouse.twin;
 
 import com.greenhouse.observation.ObservationStatus;
+import com.greenhouse.observation.SoilMoistureReadingEntity;
 import com.greenhouse.twin.config.TwinProperties;
 import com.greenhouse.twin.config.ZoneProperties;
 import com.greenhouse.twin.model.DataQuality;
 import com.greenhouse.twin.model.DeviceTwin;
 import com.greenhouse.twin.model.EnvironmentState;
 import com.greenhouse.twin.model.GreenhouseTwin;
+import com.greenhouse.twin.model.SoilMoistureTwin;
 import com.greenhouse.twin.model.ZoneTwin;
 import com.greenhouse.twin.status.DeviceStatus;
 import com.greenhouse.twin.status.FreshnessStatus;
@@ -33,6 +35,7 @@ public class TwinAssembler {
     public GreenhouseTwin assemble(
             TwinProperties properties,
             Map<String, Optional<ObservationStatus>> latestObservations,
+            List<SoilMoistureReadingEntity> latestSoilReadings,
             Instant generatedAt
     ) {
         LOGGER.debug("Assembling greenhouse twin for {} zone(s)", properties.zones().size());
@@ -56,13 +59,43 @@ public class TwinAssembler {
 
         TwinStatus status = determineTwinStatus(zones);
 
+        List<SoilMoistureTwin> soilMoisture = latestSoilReadings.stream()
+                .map(reading -> buildSoilMoistureTwin(
+                        reading, generatedAt, properties.currentThreshold(), properties.offlineThreshold()))
+                .sorted(Comparator.comparing(SoilMoistureTwin::sensorId))
+                .toList();
+
         return new GreenhouseTwin(
                 properties.greenhouseId(),
                 properties.greenhouseName(),
                 status,
                 generatedAt,
                 lastUpdatedAt,
-                zones
+                zones,
+                soilMoisture
+        );
+    }
+
+    // Facts only: the raw value and its staleness. Converting to a moisture
+    // index needs calibration, and judging that index needs a crop profile -
+    // both are interpretation and belong to the assessment layer.
+    private SoilMoistureTwin buildSoilMoistureTwin(
+            SoilMoistureReadingEntity reading,
+            Instant now,
+            Duration currentThreshold,
+            Duration offlineThreshold
+    ) {
+        Instant observedAt = reading.getReceivedAt();
+        long ageSeconds = Math.max(0, Duration.between(observedAt, now).getSeconds());
+        FreshnessStatus freshness =
+                determineFreshnessStatus(observedAt, now, currentThreshold, offlineThreshold);
+
+        return new SoilMoistureTwin(
+                reading.getSensorId(),
+                reading.getRawAdc(),
+                observedAt,
+                ageSeconds,
+                freshness
         );
     }
 

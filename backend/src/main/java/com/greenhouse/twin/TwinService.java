@@ -2,6 +2,8 @@ package com.greenhouse.twin;
 
 import com.greenhouse.observation.ObservationService;
 import com.greenhouse.observation.ObservationStatus;
+import com.greenhouse.observation.SoilMoistureReadingEntity;
+import com.greenhouse.observation.SoilMoistureReadingRepository;
 import com.greenhouse.twin.config.TwinProperties;
 import com.greenhouse.twin.config.ZoneProperties;
 import com.greenhouse.twin.model.GreenhouseTwin;
@@ -20,17 +22,20 @@ import java.util.stream.Collectors;
 public class TwinService {
 
     private final ObservationService observationService;
+    private final SoilMoistureReadingRepository soilMoistureReadingRepository;
     private final TwinAssembler twinAssembler;
     private final TwinProperties twinProperties;
     private final Clock clock;
 
     public TwinService(
             ObservationService observationService,
+            SoilMoistureReadingRepository soilMoistureReadingRepository,
             TwinAssembler twinAssembler,
             TwinProperties twinProperties,
             Clock clock
     ) {
         this.observationService = observationService;
+        this.soilMoistureReadingRepository = soilMoistureReadingRepository;
         this.twinAssembler = twinAssembler;
         this.twinProperties = twinProperties;
         this.clock = clock;
@@ -50,6 +55,9 @@ public class TwinService {
                         observationService::findLatestForDevice
                 ));
 
-        return twinAssembler.assemble(twinProperties, latestObservations, now);
+        List<SoilMoistureReadingEntity> latestSoilReadings =
+                soilMoistureReadingRepository.findLatestPerSensor();
+
+        return twinAssembler.assemble(twinProperties, latestObservations, latestSoilReadings, now);
     }
 }

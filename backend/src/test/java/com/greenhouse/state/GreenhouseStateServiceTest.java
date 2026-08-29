@@ -39,7 +39,7 @@ class GreenhouseStateServiceTest {
 
     @Test
     void composesTwinAndActiveAssessments() {
-        GreenhouseTwin twin = new GreenhouseTwin("greenhouse-01", "Home Greenhouse", TwinStatus.NORMAL, FIXED_NOW, FIXED_NOW, List.of());
+        GreenhouseTwin twin = new GreenhouseTwin("greenhouse-01", "Home Greenhouse", TwinStatus.NORMAL, FIXED_NOW, FIXED_NOW, List.of(), List.of());
         AssessmentResponse activeAssessment = new AssessmentResponse(
                 1L, "greenhouse-01:DEVICE:device-1:DEVICE_OFFLINE", "greenhouse-01", null, "device-1",
                 AssessmentScopeType.DEVICE, "device-1", AssessmentCode.DEVICE_OFFLINE, AssessmentSeverity.CRITICAL,
@@ -61,7 +61,7 @@ class GreenhouseStateServiceTest {
 
     @Test
     void doesNotTriggerReconciliation() {
-        GreenhouseTwin twin = new GreenhouseTwin("greenhouse-01", "Home Greenhouse", TwinStatus.NORMAL, FIXED_NOW, FIXED_NOW, List.of());
+        GreenhouseTwin twin = new GreenhouseTwin("greenhouse-01", "Home Greenhouse", TwinStatus.NORMAL, FIXED_NOW, FIXED_NOW, List.of(), List.of());
         when(twinService.getCurrentTwin()).thenReturn(twin);
         when(assessmentQueryService.getActiveAssessments()).thenReturn(List.of());
 

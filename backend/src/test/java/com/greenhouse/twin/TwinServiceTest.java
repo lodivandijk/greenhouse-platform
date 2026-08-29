@@ -2,6 +2,7 @@ package com.greenhouse.twin;
 
 import com.greenhouse.observation.ObservationService;
 import com.greenhouse.observation.ObservationStatus;
+import com.greenhouse.observation.SoilMoistureReadingRepository;
 import com.greenhouse.twin.config.TwinProperties;
 import com.greenhouse.twin.config.ZoneProperties;
 import com.greenhouse.twin.model.GreenhouseTwin;
@@ -29,6 +30,9 @@ class TwinServiceTest {
     @Mock
     private ObservationService observationService;
 
+    @Mock
+    private SoilMoistureReadingRepository soilMoistureReadingRepository;
+
     private final Clock fixedClock = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
     private final TwinAssembler assembler = new TwinAssembler();
 
@@ -51,7 +55,7 @@ class TwinServiceTest {
         when(observationService.findLatestForDevice("device-2"))
                 .thenReturn(Optional.of(new ObservationStatus("device-2", 22.0, 60.0, 1012.0, FIXED_NOW.minusSeconds(10))));
 
-        TwinService service = new TwinService(observationService, assembler, properties, fixedClock);
+        TwinService service = new TwinService(observationService, soilMoistureReadingRepository, assembler, properties, fixedClock);
 
         GreenhouseTwin twin = service.getCurrentTwin();
 
@@ -75,7 +79,7 @@ class TwinServiceTest {
 
         when(observationService.findLatestForDevice("device-1")).thenReturn(Optional.empty());
 
-        TwinService service = new TwinService(observationService, assembler, properties, fixedClock);
+        TwinService service = new TwinService(observationService, soilMoistureReadingRepository, assembler, properties, fixedClock);
 
         GreenhouseTwin twin = service.getCurrentTwin();
 
@@ -92,7 +96,7 @@ class TwinServiceTest {
         when(observationService.findLatestForDevice("device-2"))
                 .thenReturn(Optional.of(new ObservationStatus("device-2", 21.0, 51.0, 1001.0, FIXED_NOW.minusSeconds(15))));
 
-        TwinService service = new TwinService(observationService, assembler, properties, fixedClock);
+        TwinService service = new TwinService(observationService, soilMoistureReadingRepository, assembler, properties, fixedClock);
 
         GreenhouseTwin twin = service.getCurrentTwin();
 

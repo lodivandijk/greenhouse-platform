@@ -17,7 +17,7 @@ final class TwinTestFixtures {
     }
 
     static GreenhouseTwin twin(String greenhouseId, Instant generatedAt, ZoneTwin... zones) {
-        return new GreenhouseTwin(greenhouseId, "Test Greenhouse", null, generatedAt, null, List.of(zones));
+        return new GreenhouseTwin(greenhouseId, "Test Greenhouse", null, generatedAt, null, List.of(zones), List.of());
     }
 
     static ZoneTwin zone(

@@ -25,7 +25,7 @@ class AssessmentServiceTest {
 
     private static final Instant EVALUATED_AT = Instant.parse("2026-07-26T12:00:00Z");
     private static final GreenhouseTwin EMPTY_TWIN =
-            new GreenhouseTwin("greenhouse-01", "Home Greenhouse", null, EVALUATED_AT, null, List.of());
+            new GreenhouseTwin("greenhouse-01", "Home Greenhouse", null, EVALUATED_AT, null, List.of(), List.of());
 
     @Mock
     private AssessmentReconciler assessmentReconciler;

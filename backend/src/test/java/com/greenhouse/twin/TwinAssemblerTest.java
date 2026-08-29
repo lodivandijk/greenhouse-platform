@@ -52,7 +52,7 @@ class TwinAssemblerTest {
     }
 
     private GreenhouseTwin assembleSingleDevice(Optional<ObservationStatus> observation) {
-        return assembler.assemble(singleZoneProperties(), Map.of(DEVICE_ID, observation), NOW);
+        return assembler.assemble(singleZoneProperties(), Map.of(DEVICE_ID, observation), List.of(), NOW);
     }
 
     private static ZoneTwin firstZone(GreenhouseTwin twin) {
@@ -164,7 +164,7 @@ class TwinAssemblerTest {
                 newerDeviceId, Optional.of(observation(newerDeviceId, 24.0, 55.0, 1005.0, newerTime))
         );
 
-        GreenhouseTwin twin = assembler.assemble(properties, observations, NOW);
+        GreenhouseTwin twin = assembler.assemble(properties, observations, List.of(), NOW);
         ZoneTwin zone = firstZone(twin);
 
         assertThat(zone.devices()).extracting(DeviceTwin::deviceId)
@@ -194,7 +194,7 @@ class TwinAssemblerTest {
                 "device-b", Optional.of(observation("device-b", 21.0, 51.0, 1001.0, zoneBObservedAt))
         );
 
-        GreenhouseTwin twin = assembler.assemble(properties, observations, NOW);
+        GreenhouseTwin twin = assembler.assemble(properties, observations, List.of(), NOW);
 
         assertThat(twin.zones()).extracting(ZoneTwin::zoneId).containsExactly("zone-a", "zone-b");
         assertThat(twin.lastUpdatedAt()).isEqualTo(zoneBObservedAt);
