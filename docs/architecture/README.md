@@ -36,7 +36,8 @@ docs/architecture/
 │   ├── ADR-015-mcp-java-sdk-not-spring-ai-starter.md
 │   ├── ADR-016-scoped-delete-capability.md
 │   ├── ADR-017-action-domain.md
-│   └── ADR-018-soil-moisture-telemetry.md
+│   ├── ADR-018-soil-moisture-telemetry.md
+│   └── ADR-019-esp32-ota-updates.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec

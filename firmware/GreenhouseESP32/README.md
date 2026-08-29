@@ -37,9 +37,9 @@ Raw 12-bit ADC values for every active sensor are included in each observation P
 
 ## Setup
 
-1. Copy `Secrets.example.h` to `Secrets.h` and fill in your Wi-Fi SSID/password. `Secrets.h` is gitignored and never committed.
+1. Copy `Secrets.example.h` to `Secrets.h` and fill in your Wi-Fi SSID/password and an OTA update password (see "Over-the-air updates" below). `Secrets.h` is gitignored and never committed.
 2. Update `Config.h` if the backend's host/port, heartbeat/observation interval, or BME280 I2C address differ from the defaults.
-3. Install the `Adafruit BME280 Library` (Library Manager, or `arduino-cli lib install "Adafruit BME280 Library"`) — this pulls in `Adafruit Unified Sensor` and `Adafruit BusIO` as dependencies.
+3. Install the `Adafruit BME280 Library` (Library Manager, or `arduino-cli lib install "Adafruit BME280 Library"`) — this pulls in `Adafruit Unified Sensor` and `Adafruit BusIO` as dependencies. `ArduinoOTA` needs no separate install — it's bundled with the ESP32 core.
 4. Open `GreenhouseESP32.ino` in the Arduino IDE (File > Open Sketch, any folder works) and upload, or compile from the CLI:
 
 ```bash
@@ -51,3 +51,20 @@ arduino-cli compile --fqbn esp32:esp32:pico32 firmware/GreenhouseESP32
 On boot, the device connects to Wi-Fi, then on a fixed timer (`Config::HEARTBEAT_INTERVAL_MS`) POSTs a heartbeat to the backend's `/api/heartbeats` endpoint. Heartbeats are skipped while Wi-Fi is disconnected and resume automatically once it reconnects. Diagnostics are always logged to Serial regardless of network state.
 
 Independently, on its own fixed timer (`Config::OBSERVATION_INTERVAL_MS`), the device reads temperature/humidity/pressure from the BME280, reads every active soil moisture sensor (logging each to Serial as `soil sensor id=... gpio=... rawAdc=...`), and POSTs all of it together as one `/api/observations` payload. There is deliberately no separate timer or second network call for soil data — see `SensorService::sendObservation`. Observations are skipped entirely (with a logged warning) if the BME280 sensor wasn't detected at boot or if Wi-Fi is disconnected, and resume automatically once conditions recover.
+
+## Over-the-air (OTA) updates
+
+Once a build including `OtaService` is running, future updates (sensor config changes, calibration, etc.) can be pushed over the home Wi-Fi network instead of requiring USB — see ADR-019. The device advertises itself via mDNS as `<DeviceInfo::DEVICE_ID>` (currently `greenhouse-esp32-01`) as soon as Wi-Fi connects at boot.
+
+**One-time bootstrap**: the very first OTA-capable build must still be flashed over USB — a device with no OTA listener can't receive anything over the air. After that one flash, OTA is available for every subsequent update, for as long as the device keeps running a build that includes `OtaService`.
+
+To push an update once bootstrapped:
+
+```bash
+arduino-cli upload -p <device-ip-address> --fqbn esp32:esp32:pico32 firmware/GreenhouseESP32 \
+  --upload-field password=<the value of Secrets::OTA_PASSWORD>
+```
+
+Find the device's current IP from its Serial boot log (`IP address: ...`) or your router's DHCP client list. `arduino-cli board list` will not show it — that only lists USB-serial ports, not network-discovered boards.
+
+If OTA doesn't respond: check the device actually connected to Wi-Fi at boot (`OtaService` is skipped entirely if it didn't, with a logged warning — see `GreenhouseESP32.ino`), and that this Mac and the ESP32 are on the same local network/subnet (mDNS discovery doesn't cross routed network boundaries).
