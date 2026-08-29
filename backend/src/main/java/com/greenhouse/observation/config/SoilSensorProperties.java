@@ -13,6 +13,12 @@ import java.util.List;
 // 4.2): sensorId is the durable hardware identity (see SoilSensors::ALL in
 // the firmware); which plant a sensor currently monitors is Pi-side
 // configuration, changeable without reflashing. See ADR-018.
+//
+// dryRawAdc/wetRawAdc are calibration reference points (spec section 8) -
+// nullable because a newly added sensor has an assignment before it has
+// calibration data. They are reference values only; no moisture percentage
+// is computed or exposed anywhere yet (deliberately deferred, spec section
+// 9). See ADR-020.
 @Validated
 @ConfigurationProperties(prefix = "greenhouse.soil-sensors")
 public record SoilSensorProperties(
@@ -34,7 +40,16 @@ public record SoilSensorProperties(
 
     public record SoilSensorAssignment(
             @NotBlank String sensorId,
-            @NotBlank String plant
+            @NotBlank String plant,
+            Integer dryRawAdc,
+            Integer wetRawAdc
     ) {
+        public SoilSensorAssignment {
+            if (dryRawAdc != null && wetRawAdc != null && wetRawAdc >= dryRawAdc) {
+                throw new IllegalArgumentException(
+                        "wetRawAdc must be less than dryRawAdc for sensorId '" + sensorId
+                                + "' (higher raw ADC means drier - confirmed empirically, spec section 8)");
+            }
+        }
     }
 }

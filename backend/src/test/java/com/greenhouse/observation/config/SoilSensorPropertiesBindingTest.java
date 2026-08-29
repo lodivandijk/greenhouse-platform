@@ -28,4 +28,21 @@ class SoilSensorPropertiesBindingTest {
                         Tuple.tuple("soil-05", "Oregano")
                 );
     }
+
+    @Test
+    void bindsCalibrationReferenceValuesForEverySensor() {
+        assertThat(soilSensorProperties.assignments())
+                .extracting(
+                        SoilSensorProperties.SoilSensorAssignment::sensorId,
+                        SoilSensorProperties.SoilSensorAssignment::dryRawAdc,
+                        SoilSensorProperties.SoilSensorAssignment::wetRawAdc
+                )
+                .containsExactly(
+                        Tuple.tuple("soil-01", 2814, 1181),
+                        Tuple.tuple("soil-02", 2706, 1121),
+                        Tuple.tuple("soil-03", 2707, 1105),
+                        Tuple.tuple("soil-04", 2794, 1179),
+                        Tuple.tuple("soil-05", 2717, 1134)
+                );
+    }
 }

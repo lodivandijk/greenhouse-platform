@@ -37,7 +37,8 @@ docs/architecture/
 │   ├── ADR-016-scoped-delete-capability.md
 │   ├── ADR-017-action-domain.md
 │   ├── ADR-018-soil-moisture-telemetry.md
-│   └── ADR-019-esp32-ota-updates.md
+│   ├── ADR-019-esp32-ota-updates.md
+│   └── ADR-020-soil-moisture-calibration-storage.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec

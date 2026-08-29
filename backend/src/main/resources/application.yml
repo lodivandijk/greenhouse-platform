@@ -16,17 +16,33 @@ greenhouse:
           - greenhouse-esp32-01
 
   soil-sensors:
+    # dry-raw-adc/wet-raw-adc are calibration reference points, measured
+    # 2026-08-29: each probe held stable in air, then fully immersed in
+    # water, for several minutes each with readings confirmed steady before
+    # recording. Higher raw ADC = drier, confirmed empirically across all
+    # five sensors. No moisture percentage is computed from these anywhere
+    # yet - see ADR-020.
     assignments:
       - sensor-id: soil-01
         plant: Basil
+        dry-raw-adc: 2814
+        wet-raw-adc: 1181
       - sensor-id: soil-02
         plant: Thyme
+        dry-raw-adc: 2706
+        wet-raw-adc: 1121
       - sensor-id: soil-03
         plant: Mint
+        dry-raw-adc: 2707
+        wet-raw-adc: 1105
       - sensor-id: soil-04
         plant: Sage
+        dry-raw-adc: 2794
+        wet-raw-adc: 1179
       - sensor-id: soil-05
         plant: Oregano
+        dry-raw-adc: 2717
+        wet-raw-adc: 1134
 
   evaluation:
     enabled: true
