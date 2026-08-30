@@ -24,6 +24,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-jdbc:4.1.0'
     implementation 'org.springframework.boot:spring-boot-starter-flyway:4.1.0'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa:4.1.0'
+    implementation 'org.springframework.boot:spring-boot-starter-mail:4.1.0'
 
     runtimeOnly 'org.flywaydb:flyway-database-postgresql:11.8.2'
     runtimeOnly 'org.postgresql:postgresql:42.7.7'
@@ -39,6 +40,14 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+
+    // Spring caches one application context per distinct test configuration and
+    // holds them all for the whole run. At Hikari's default pool size of 10,
+    // the suite's contexts together exhaust PostgreSQL's max_connections. Tests
+    // are single-threaded per context and need nowhere near ten connections.
+    // Set here rather than in a test application.yml, which would shadow the
+    // main configuration entirely rather than merging with it.
+    systemProperty 'spring.datasource.hikari.maximum-pool-size', '3'
 }
 
 tasks.named('bootJar') {

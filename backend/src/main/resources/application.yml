@@ -1,3 +1,20 @@
+spring:
+  mail:
+    host: ${GREENHOUSE_SMTP_HOST:}
+    port: ${GREENHOUSE_SMTP_PORT:587}
+    username: ${GREENHOUSE_SMTP_USERNAME:}
+    password: ${GREENHOUSE_SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
+
 greenhouse:
   twin:
     greenhouse-id: greenhouse-01
@@ -61,3 +78,20 @@ greenhouse:
     zone: Europe/London
     generate-at: "06:00"
     window: PT24H
+
+  # Outbound notification. Email is OFF by default: the platform runs perfectly
+  # well without SMTP configured, and nothing is ever sent until it is switched
+  # on deliberately with credentials supplied through the environment.
+  notifications:
+    enabled: true
+    sweep-interval: PT5M
+    initial-delay: PT45S
+    reminder-interval: PT12H
+    recovery-email-enabled: false
+    max-delivery-attempts: 6
+    channels:
+      email:
+        enabled: ${GREENHOUSE_EMAIL_ENABLED:false}
+        from: ${GREENHOUSE_EMAIL_FROM:}
+        to: ${GREENHOUSE_EMAIL_TO:lodi.van.dijk@gmail.com}
+        message-id-domain: ${GREENHOUSE_EMAIL_MESSAGE_ID_DOMAIN:greenhouse.local}

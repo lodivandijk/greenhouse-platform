@@ -55,6 +55,7 @@ com.greenhouse.goal          Goal — user intent for a crop, not executable con
 com.greenhouse.action        Action — agricultural work performed on a crop, not machine control (persisted)
 com.greenhouse.careloop      Care loop — Decision, Command, Execution, Outcome and scope (append-only)
 com.greenhouse.briefing      Daily structured crop-status snapshot (immutable, versioned)
+com.greenhouse.notification  Outbound notification — intent, policy, delivery (append-only projection)
 com.greenhouse.mcp           MCP server + tools — the agent capability boundary
 com.greenhouse.common        Cross-cutting (API exception handling, idempotency)
 static/                      Read-only UI (served by Spring Boot's default static handling)
@@ -111,7 +112,7 @@ Two independent triggers read/write this pipeline:
 
 ## 5. Persistence
 
-PostgreSQL, 28 tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
+PostgreSQL, 30 tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
 
 - **`observation`** (V1) — append-only log. One row per accepted reading: `device_id`, `temperature_celsius`, `humidity_percent`, `pressure_hpa`, `received_at`. Rows are never updated or deleted by the ingestion path. No foreign key to `device` (ingestion must keep working even if a device record is temporarily missing).
 - **`device`** (V2) — one mutable row per device, natural key (`device_id`, no surrogate id): `software_version`, `first_seen_at`, `last_seen_at`, `last_ip_address`, `last_signal_strength_dbm`, `last_uptime_seconds`, `heartbeat_count`, `enabled`, `updated_at`. `online` is never stored — always derived at read time from `last_seen_at`.
@@ -136,6 +137,8 @@ PostgreSQL, 28 tables via Flyway migrations (`backend/src/main/resources/db/migr
 - **`outcome`** (V24) + `outcome_review_event` (V25) + `outcome_evaluation_schedule` — evidence-based evaluation; the schedule is a table rather than an in-memory timer so pending evaluations survive a restart.
 - **`idempotent_request`** (V26) — one row per care-loop MCP write, so a retry replays the stored result instead of re-running the action.
 - **`daily_briefing_snapshot`** (V28) — one immutable structured briefing per greenhouse day. Deliberately *not* unique per day: regeneration creates a new version linked via `supersedes_snapshot_id`.
+- **`notification_intent`** (V29) — an immutable statement that a message should be delivered, anchored to exactly one care loop *or* one briefing snapshot (a `CHECK` constraint enforces the exclusive-or). `payload_json` (JSONB) captures what the renderer needs at decision time. A unique index on `deduplication_key` is the actual idempotency guarantee — repeated sweeps over unchanged state compute the same key and lose the insert race harmlessly. See ADR-023.
+- **`notification_delivery_event`** (V29) — append-only, one row per delivery transition (`ATTEMPTED`/`SENT`/`FAILED`/`SUPPRESSED`/`ABANDONED`) with `attempt_number` and a persisted `next_attempt_at`, so the retry schedule survives a restart. `error_code`/`error_message` are sanitised before storage; credentials never reach these columns.
 
 `goal`, `harvest`, `crop_observation`, and `action` all have real foreign keys to `crop(id)` — unlike `observation`/`device`/`soil_moisture_reading`, they're only ever written through validated domain services, never raw ingestion, so the FK-avoidance rationale doesn't apply (see ADR-009).
 
@@ -180,18 +183,21 @@ REST and MCP tools both call the same domain services directly (`CropService`, `
 - Soil sensor-to-plant assignment and calibration (`greenhouse.soil-sensors.assignments` — five entries, `soil-01`..`soil-05` to Basil/Thyme/Mint/Sage/Oregano, each with a measured `dry-raw-adc`/`wet-raw-adc` reference pair) follows the same configuration-not-database-table pattern, bound via `SoilSensorProperties`. Not yet read by any code path — see ADR-018, ADR-020, and §10.
 - Device status thresholds: `ONLINE` under the current-threshold (2m), `DELAYED` under the offline-threshold (5m), `OFFLINE` beyond it, `UNKNOWN` if never seen. The same thresholds drive `FreshnessStatus` for observations.
 - The four assessment rules (`temperature-operating-limit`, `humidity-operating-limit`, `observation-freshness` — code `OBSERVATION_STALE`, and `device-availability` — code `DEVICE_OFFLINE`) are stateless and evaluate independently; the reconciler is what gives the results statefulness. Severity: environmental limit breaches and staleness are `WARNING`; device offline is `CRITICAL`. A device that has never reported (`UNKNOWN`) does not raise `DEVICE_OFFLINE` — only a previously-seen device going quiet does.
-- Three schedulers run, on deliberately different cadences: `GreenhouseEvaluationScheduler` (1 min — twin, assessments, and care-loop correlation on one clock reading), `OutcomeEvaluationScheduler` (5 min — evaluation windows are hours-scale and per-execution), and `DailyBriefingScheduler` (cron, 06:00 `Europe/London` by default, plus a startup check that recovers a missed run idempotently).
+- Four schedulers run, on deliberately different cadences: `GreenhouseEvaluationScheduler` (1 min — twin, assessments, and care-loop correlation on one clock reading), `OutcomeEvaluationScheduler` (5 min — evaluation windows are hours-scale and per-execution), `DailyBriefingScheduler` (ticks every minute and generates only once local time has reached `generate-at`, 06:00 `Europe/London` by default), and `NotificationSweepScheduler` (5 min — notification policy then delivery, plus a startup sweep).
+- The briefing schedule has exactly one source of truth: `generate-at` + `zone`. There is no separate cron property — changing `generate-at` genuinely changes when it fires. Startup recovery re-checks the same due condition, so a restart before the configured hour generates nothing rather than producing a "daily briefing" at midnight.
+- Care-loop recovery is driven by loop **state**, not by a tick's deltas: every evaluation cycle scans open loops and closes one whose linked assessments are all resolved and have stayed resolved for the recovery duration. A tick that resolves nothing can still close a loop.
+- The notification sweep reads care-loop and briefing state and records that a message should exist. It never mutates an assessment, decision, command, execution, outcome or scope record, and is not a second assessment engine — it re-evaluates no thresholds. Notification failing, or being disabled entirely, has no effect on care-cycle correctness. Email ships **disabled** (`greenhouse.notifications.channels.email.enabled`, default `false`); with it off, no adapter is created and no delivery is attempted. See ADR-023.
 - Care loops open only once a condition has persisted for the crop's configured excursion duration (default 60 min) and close only after its recovery duration (default 30 min). The assessment itself is raised on the first cycle regardless — that separation is what stops a one-minute blip generating a task without discarding the evidence that it happened. Sensor-quality conditions (not assigned, uncalibrated, stale) are actionable immediately, since they are not transient.
 - Crop temperature assessments across several crops collapse into a single greenhouse-level loop, because ventilating is one physical act regardless of how many crops are affected.
 - Assessment list responses are sorted by severity rank in application code (`AssessmentQueryService`), not via a JPA-derived `ORDER BY` — `AssessmentSeverity` is `EnumType.STRING`, so a raw column sort would be alphabetical rather than by actual severity.
 
 ## 8. MCP agent interface
 
-An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Twenty-five tools are exposed:
+An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Twenty-six tools are exposed:
 
 ```
 Read:   get_greenhouse_state, list_crops, get_crop, get_crop_history, list_goals, list_actions,
-        get_open_care_loops, get_care_loop, get_daily_crop_status
+        get_open_care_loops, get_care_loop, get_daily_crop_status, get_notification_history
 Write:  create_crop, update_crop, create_goal, record_harvest, record_crop_observation, record_action,
         propose_care_decision, record_decision_response, record_command_response,
         record_care_execution, record_outcome_review, record_loop_scope_override
@@ -201,6 +207,8 @@ Delete: delete_crop, delete_goal, delete_harvest, delete_crop_observation
 The six care-loop write tools each require an `idempotencyKey` and route through one shared `IdempotencyService`: a retry with the same key returns the stored result rather than re-running the action, so a repeated approval cannot issue a second command. A key reused with *different* arguments is rejected as a caller bug rather than silently returning an unrelated result.
 
 Five of them (`record_decision_response`, `record_command_response`, `record_care_execution`, `record_outcome_review`, `record_loop_scope_override`) record a human's answer, and each states in its own tool description that it may only be called after the user has explicitly said so in the current conversation, persisting as `actorType=HUMAN_VIA_AGENT`. That description text is the only thing telling a context-free agent it may not approve on the user's behalf, so `McpServerIntegrationTest` asserts each one actually carries it. `propose_care_decision` is the exception: proposing is genuinely the agent's own act and issues nothing.
+
+`get_notification_history` is read-only by design: it reports what was decided and what happened to it, but nothing can create, resend or cancel a notification through MCP. Delivery is driven entirely by the sweep, and a second write path would be a second, racing dispatcher.
 
 There is deliberately **no** generic `update_*`, `execute_sql` or free-query tool; a test asserts their absence.
 
@@ -231,4 +239,8 @@ Single-page, read-only dashboard at `GET /`, served from `backend/src/main/resou
 - **`SoilSensorProperties` YAML is now bootstrap-only.** ADR-022 moved calibration and assignment into versioned tables; the config block still validates at startup but no runtime path reads it. It should be deleted in a later cleanup once the DB-backed path has proven itself.
 - **The dashboard has not been extended.** Crop status, soil moisture and open care loops are available over REST/MCP but the UI still renders only the original twin/assessment view. `/api/v1/state` is unchanged and backwards-compatible.
 - **Humidity, light and feeding produce no assessments.** Humidity is reported as a measured fact only; there are no configured numeric thresholds or persistence rules for it, and no light sensor exists at all. Feeding/pruning guidance is contextual advice, not a sensor assessment.
+- **Notification delivery is at-least-once, not exactly-once.** If the process dies between the provider accepting a message and `SENT` being recorded, a retry can duplicate it. A deterministic `Message-ID` gives the receiving server a chance to collapse the duplicate, but it is not eliminated — see ADR-023 for why that trade was made deliberately.
+- **Email is the only notification channel, and it is deployed disabled.** The port is channel-neutral so WhatsApp could be added as an adapter, but no second adapter exists. There is no inbound path: nothing can be actioned by replying to a message.
+- **The notification sweep is 5-minutely**, so an actionable care loop can be up to five minutes old before anyone is told. Nothing in a greenhouse changes state faster than that.
+- **No retention policy on `notification_intent`.** Same unbounded growth as `observation`, at a far lower rate.
 - **Outcome evaluation is deliberately conservative.** A crop with no probe, no readings since the work, or an uncalibrated sensor yields `INCONCLUSIVE` with the reason recorded, never an assumed success.

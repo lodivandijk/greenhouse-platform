@@ -40,7 +40,8 @@ docs/architecture/
 │   ├── ADR-019-esp32-ota-updates.md
 │   ├── ADR-020-soil-moisture-calibration-storage.md
 │   ├── ADR-021-immutable-human-in-the-loop-care-model.md
-│   └── ADR-022-calibration-and-assignment-in-database.md
+│   ├── ADR-022-calibration-and-assignment-in-database.md
+│   └── ADR-023-outbound-notification-architecture.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec
