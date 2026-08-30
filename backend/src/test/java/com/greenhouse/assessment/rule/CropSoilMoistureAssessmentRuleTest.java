@@ -11,6 +11,7 @@ import com.greenhouse.crop.CropMonitoringProfileService;
 import com.greenhouse.crop.CropRepository;
 import com.greenhouse.crop.CropStatus;
 import com.greenhouse.crop.SoilMoistureStrategy;
+import com.greenhouse.crop.SoilMonitoringMode;
 import com.greenhouse.observation.assignment.CropSensorAssignment;
 import com.greenhouse.observation.assignment.CropSensorAssignmentService;
 import com.greenhouse.observation.calibration.MoistureIndex;
@@ -92,7 +93,16 @@ class CropSoilMoistureAssessmentRuleTest {
         profile.setSoilMoistureStrategy(strategy);
         profile.setSoilDryThresholdIndex(dry);
         profile.setSoilWetThresholdIndex(wet);
+        profile.setSoilMonitoringMode(SoilMonitoringMode.SENSOR);
         profile.setEnabled(true);
+        return profile;
+    }
+
+    private static CropMonitoringProfile manualProfile(Long cropId) {
+        CropMonitoringProfile profile =
+                profile(cropId, SoilMoistureStrategy.DRY_BETWEEN_WATERING, 15.0, 75.0);
+        profile.setVersion(2);
+        profile.setSoilMonitoringMode(SoilMonitoringMode.MANUAL);
         return profile;
     }
 
@@ -137,6 +147,69 @@ class CropSoilMoistureAssessmentRuleTest {
         assertThat(finding.scopeType()).isEqualTo(AssessmentScopeType.CROP);
         assertThat(finding.scopeId()).isEqualTo("13");
         assertThat(finding.evidence()).containsEntry("reason", "NO_SENSOR_ASSIGNED");
+    }
+
+    // The whole point of ADR-024: a crop with no probe BY CHOICE is not a
+    // data-quality fault. Before this, it raised an assessment that could never
+    // resolve, which held a care loop open forever.
+    @Test
+    void manuallyMonitoredCropWithNoSensor_raisesNothing() {
+        Crop tarragon = crop(13L, "Tarragon");
+        when(cropRepository.findAll()).thenReturn(List.of(tarragon));
+        when(profileService.enabledProfilesByCropId()).thenReturn(Map.of(13L, manualProfile(13L)));
+        when(assignmentService.currentAssignmentsByCropId()).thenReturn(Map.of());
+
+        assertThat(rule.evaluate(twinWithSoil(), NOW)).isEmpty();
+    }
+
+    // Suppression must not depend on the sensor also being absent: a manual
+    // crop is opted out of sensor assessment entirely, including staleness,
+    // calibration and moisture thresholds.
+    @Test
+    void manuallyMonitoredCropRaisesNothingEvenWithAProbeReporting() {
+        Crop tarragon = crop(13L, "Tarragon");
+        when(cropRepository.findAll()).thenReturn(List.of(tarragon));
+        when(profileService.enabledProfilesByCropId()).thenReturn(Map.of(13L, manualProfile(13L)));
+        lenient().when(assignmentService.currentAssignmentsByCropId())
+                .thenReturn(Map.of(13L, assignment(13L, "soil-06")));
+
+        // A reading that would comfortably breach the wet threshold if this
+        // crop were sensor-assessed.
+        SoilMoistureTwin soaked = new SoilMoistureTwin(
+                "soil-06", 1181, NOW, 10L, FreshnessStatus.CURRENT);
+
+        assertThat(rule.evaluate(twinWithSoil(soaked), NOW)).isEmpty();
+    }
+
+    @Test
+    void switchingBackToSensorRestoresNormalAssessment() {
+        Crop tarragon = crop(13L, "Tarragon");
+        when(cropRepository.findAll()).thenReturn(List.of(tarragon));
+        // The same crop, now back on a SENSOR profile with still no probe.
+        when(profileService.enabledProfilesByCropId())
+                .thenReturn(Map.of(13L, profile(13L, SoilMoistureStrategy.DRY_BETWEEN_WATERING, 15.0, 75.0)));
+        when(assignmentService.currentAssignmentsByCropId()).thenReturn(Map.of());
+
+        List<AssessmentFinding> findings = rule.evaluate(twinWithSoil(), NOW);
+
+        assertThat(findings).hasSize(1);
+        assertThat(findings.get(0).code()).isEqualTo(AssessmentCode.CROP_SENSOR_NOT_ASSIGNED);
+    }
+
+    @Test
+    void aManualCropDoesNotSuppressAssessmentForItsSensorEquippedNeighbours() {
+        Crop tarragon = crop(13L, "Tarragon");
+        Crop basil = crop(8L, "Basil");
+        when(cropRepository.findAll()).thenReturn(List.of(tarragon, basil));
+        when(profileService.enabledProfilesByCropId()).thenReturn(Map.of(
+                13L, manualProfile(13L),
+                8L, profile(8L, SoilMoistureStrategy.EVENLY_MOIST, 30.0, null)));
+        when(assignmentService.currentAssignmentsByCropId()).thenReturn(Map.of());
+
+        List<AssessmentFinding> findings = rule.evaluate(twinWithSoil(), NOW);
+
+        assertThat(findings).hasSize(1);
+        assertThat(findings.get(0).scopeId()).isEqualTo("8");
     }
 
     @Test

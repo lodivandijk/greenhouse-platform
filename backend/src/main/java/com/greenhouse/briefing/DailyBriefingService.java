@@ -15,6 +15,7 @@ import com.greenhouse.crop.CropObservationService;
 import com.greenhouse.crop.CropRepository;
 import com.greenhouse.crop.CropStatus;
 import com.greenhouse.crop.HarvestService;
+import com.greenhouse.crop.SoilMonitoringMode;
 import com.greenhouse.observation.ObservationService;
 import com.greenhouse.observation.ObservationStatus;
 import com.greenhouse.observation.assignment.CropSensorAssignment;
@@ -257,7 +258,7 @@ public class DailyBriefingService {
             entry.put("preferencesNote", "No monitoring profile configured, so no thresholds are applied.");
         }
 
-        entry.put("soil", soilEntry(assignment, soilBySensor));
+        entry.put("soil", soilEntry(profile, assignment, soilBySensor));
 
         entry.put("assessments", assessmentRepository.findAllByStatus(AssessmentStatus.ACTIVE).stream()
                 .filter(assessment -> crop.getId().equals(assessment.getCropId()))
@@ -273,10 +274,24 @@ public class DailyBriefingService {
     }
 
     private Map<String, Object> soilEntry(
+            CropMonitoringProfile profile,
             CropSensorAssignment assignment,
             Map<String, SoilMoistureTwin> soilBySensor
     ) {
         Map<String, Object> soil = new LinkedHashMap<>();
+        soil.put("soilMonitoringMode", profile == null
+                ? String.valueOf(SoilMonitoringMode.SENSOR) : String.valueOf(profile.getSoilMonitoringMode()));
+
+        // Deliberately manual. The status is still UNKNOWN - suppressing the
+        // sensor assessment must never read as "this crop's soil is fine"
+        // (ADR-024).
+        if (profile != null && profile.isManuallyMonitored()) {
+            soil.put("status", "UNKNOWN");
+            soil.put("reason", "MANUAL_MONITORING");
+            soil.put("note", "This crop is monitored by hand on purpose - no probe is expected. Its soil "
+                    + "condition is not measured and can only be known by looking at it.");
+            return soil;
+        }
 
         if (assignment == null) {
             soil.put("status", "UNKNOWN");
@@ -376,8 +391,16 @@ public class DailyBriefingService {
         });
 
         Map<Long, CropSensorAssignment> assignments = assignmentService.currentAssignmentsByCropId();
+        Map<Long, CropMonitoringProfile> gapProfiles = profileService.enabledProfilesByCropId();
         cropRepository.findAll().stream()
                 .filter(crop -> crop.getStatus() != CropStatus.ENDED)
+                // A gap means "we tried to measure and could not". A crop that
+                // was never going to be measured is not a failed measurement,
+                // and listing it here trains the reader to ignore this section.
+                .filter(crop -> {
+                    CropMonitoringProfile profile = gapProfiles.get(crop.getId());
+                    return profile == null || !profile.isManuallyMonitored();
+                })
                 .forEach(crop -> {
                     if (!assignments.containsKey(crop.getId())) {
                         Map<String, Object> gap = new LinkedHashMap<>();

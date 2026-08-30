@@ -112,7 +112,7 @@ Two independent triggers read/write this pipeline:
 
 ## 5. Persistence
 
-PostgreSQL, 30 tables via Flyway migrations (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
+PostgreSQL, 30 tables via Flyway migrations V1–V30 (`backend/src/main/resources/db/migration/`), `spring.jpa.hibernate.ddl-auto=validate` (schema changes only happen through a migration, never Hibernate auto-DDL):
 
 - **`observation`** (V1) — append-only log. One row per accepted reading: `device_id`, `temperature_celsius`, `humidity_percent`, `pressure_hpa`, `received_at`. Rows are never updated or deleted by the ingestion path. No foreign key to `device` (ingestion must keep working even if a device record is temporarily missing).
 - **`device`** (V2) — one mutable row per device, natural key (`device_id`, no surrogate id): `software_version`, `first_seen_at`, `last_seen_at`, `last_ip_address`, `last_signal_strength_dbm`, `last_uptime_seconds`, `heartbeat_count`, `enabled`, `updated_at`. `online` is never stored — always derived at read time from `last_seen_at`.
@@ -126,7 +126,7 @@ PostgreSQL, 30 tables via Flyway migrations (`backend/src/main/resources/db/migr
 
 **Care-loop tables (V10–V26, ADR-021/ADR-022)** — the append-only half of the schema. Business records here are never updated in place; a correction is a new linked row.
 
-- **`crop_monitoring_profile`** (V10) — versioned per-crop interpretation: preferred temperature range, excursion/recovery durations, soil strategy (`EVENLY_MOIST`/`DRY_BETWEEN_WATERING`) and index thresholds. A change creates a new version so historical assessments keep referencing the one that produced them. Seeded for the six herbs by V27.
+- **`crop_monitoring_profile`** (V10, V30) — versioned per-crop interpretation: preferred temperature range, excursion/recovery durations, soil strategy (`EVENLY_MOIST`/`DRY_BETWEEN_WATERING`), index thresholds, and `soil_monitoring_mode` (`SENSOR`/`MANUAL`, V30). A change creates a new version so historical assessments keep referencing the one that produced them. Seeded for the six herbs by V27; V30 adds Tarragon's version 2 as `MANUAL` and retains version 1, disabled, as history.
 - **`crop_sensor_assignment`** (V11) / **`sensor_calibration`** (V12) — which probe serves which crop, and that probe's measured dry/wet references, both versioned. Seeded by V13 from the real ADR-020 measurements. Separate tables because sensor identity and crop assignment change independently.
 - **`assessment_lifecycle_event`** (V14) — full-snapshot row per assessment transition (`RAISED`/`UPDATED`/`RESOLVED`/`REOPENED`), written by `AssessmentReconciler` in the same transaction as its upsert. This is what makes the mutable `assessment` row a rebuildable projection rather than an unlogged source of truth.
 - **`care_loop`** (V16) + `care_loop_assessment` + `care_loop_status_event` (V17) — the correlation root for one condition and everything responding to it. A partial unique index prevents duplicate open loops per correlation key. Status is projected from events, never stored.
@@ -187,26 +187,31 @@ REST and MCP tools both call the same domain services directly (`CropService`, `
 - The briefing schedule has exactly one source of truth: `generate-at` + `zone`. There is no separate cron property — changing `generate-at` genuinely changes when it fires. Startup recovery re-checks the same due condition, so a restart before the configured hour generates nothing rather than producing a "daily briefing" at midnight.
 - Care-loop recovery is driven by loop **state**, not by a tick's deltas: every evaluation cycle scans open loops and closes one whose linked assessments are all resolved and have stayed resolved for the recovery duration. A tick that resolves nothing can still close a loop.
 - The notification sweep reads care-loop and briefing state and records that a message should exist. It never mutates an assessment, decision, command, execution, outcome or scope record, and is not a second assessment engine — it re-evaluates no thresholds. Notification failing, or being disabled entirely, has no effect on care-cycle correctness. Email ships **disabled** (`greenhouse.notifications.channels.email.enabled`, default `false`); with it off, no adapter is created and no delivery is attempted. See ADR-023.
+- A crop's `soil_monitoring_mode` decides whether it is sensor-assessed at all. `SENSOR` (the default, and every crop but Tarragon) keeps the four-step assignment/calibration/staleness/threshold check. `MANUAL` means the crop is deliberately tended by eye: `CropSoilMoistureAssessmentRule` skips it entirely and raises none of `CROP_SENSOR_NOT_ASSIGNED`, `CROP_SENSOR_CALIBRATION_REQUIRED`, `CROP_SENSOR_DATA_STALE`, or the moisture thresholds. **This is not a claim that the soil is fine** — it is unknown, and the briefing and email both say so explicitly rather than omitting the crop. A deliberate absence of a probe is correspondingly not counted as a data-quality gap, since a gap means "we tried to measure and could not". See ADR-024.
 - Care loops open only once a condition has persisted for the crop's configured excursion duration (default 60 min) and close only after its recovery duration (default 30 min). The assessment itself is raised on the first cycle regardless — that separation is what stops a one-minute blip generating a task without discarding the evidence that it happened. Sensor-quality conditions (not assigned, uncalibrated, stale) are actionable immediately, since they are not transient.
 - Crop temperature assessments across several crops collapse into a single greenhouse-level loop, because ventilating is one physical act regardless of how many crops are affected.
 - Assessment list responses are sorted by severity rank in application code (`AssessmentQueryService`), not via a JPA-derived `ORDER BY` — `AssessmentSeverity` is `EnumType.STRING`, so a raw column sort would be alphabetical rather than by actual severity.
 
 ## 8. MCP agent interface
 
-An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Twenty-six tools are exposed:
+An MCP server runs inside the same process (`com.greenhouse.mcp`), reachable at `POST /mcp` using the Streamable HTTP transport from the official MCP Java SDK (`io.modelcontextprotocol.sdk`, hand-wired — not Spring AI's Boot starter; see ADR-015 for why). Twenty-eight tools are exposed:
 
 ```
 Read:   get_greenhouse_state, list_crops, get_crop, get_crop_history, list_goals, list_actions,
-        get_open_care_loops, get_care_loop, get_daily_crop_status, get_notification_history
+        get_open_care_loops, get_care_loop, get_daily_crop_status, get_notification_history,
+        get_crop_monitoring_profile_history
 Write:  create_crop, update_crop, create_goal, record_harvest, record_crop_observation, record_action,
         propose_care_decision, record_decision_response, record_command_response,
-        record_care_execution, record_outcome_review, record_loop_scope_override
+        record_care_execution, record_outcome_review, record_loop_scope_override,
+        set_crop_soil_monitoring_mode
 Delete: delete_crop, delete_goal, delete_harvest, delete_crop_observation
 ```
 
 The six care-loop write tools each require an `idempotencyKey` and route through one shared `IdempotencyService`: a retry with the same key returns the stored result rather than re-running the action, so a repeated approval cannot issue a second command. A key reused with *different* arguments is rejected as a caller bug rather than silently returning an unrelated result.
 
 Five of them (`record_decision_response`, `record_command_response`, `record_care_execution`, `record_outcome_review`, `record_loop_scope_override`) record a human's answer, and each states in its own tool description that it may only be called after the user has explicitly said so in the current conversation, persisting as `actorType=HUMAN_VIA_AGENT`. That description text is the only thing telling a context-free agent it may not approve on the user's behalf, so `McpServerIntegrationTest` asserts each one actually carries it. `propose_care_decision` is the exception: proposing is genuinely the agent's own act and issues nothing.
+
+`set_crop_soil_monitoring_mode` switches a crop between `SENSOR` and `MANUAL`, creating a new monitoring-profile version and preserving the previous one. It requires an `idempotencyKey` and a `rationale`, and carries the same explicit-human-confirmation notice as the care-loop response tools — turning off a crop's soil warnings removes a real safety net and is not the agent's call to make alone. `get_crop_monitoring_profile_history` returns every version, so "why is this crop not being sensor-assessed, and who decided that?" is answerable.
 
 `get_notification_history` is read-only by design: it reports what was decided and what happened to it, but nothing can create, resend or cancel a notification through MCP. Delivery is driven entirely by the sweep, and a second write path would be a second, racing dispatcher.
 
@@ -235,6 +240,8 @@ Single-page, read-only dashboard at `GET /`, served from `backend/src/main/resou
 - **`delete_crop` is deliberately narrow.** It only works on crops with zero recorded history — a real crop with goals/harvests/observations/actions can only be retired (`update_crop`, `status: ENDED`), never deleted, short of manually deleting its child records first. No bulk delete, cascade delete, or undo/soft-delete exists for any of the four delete tools.
 - **Local dev and the Pi have independently-managed database credentials and MCP auth tokens** (not shared, not centrally rotated).
 - **No control loop into the hardware.** Every command targets a human; the `command` table has a database-level `CHECK` constraint enforcing it. Progressive autonomy is modelled for (an `ActorType.AGENT`, a non-human `targetType`) but no such authority is enabled.
+- **A `MANUAL` crop has no soil safety net at all.** Setting the mode to quieten an alert on a crop that really does have a failing probe would stop the platform ever warning about it. The required `rationale` and the preserved version history make the change attributable, but nothing prevents it — a mode that could be overridden would not do what it says.
+- **A probe assigned to a `MANUAL` crop produces readings but no assessment.** That is the honest reading of the configuration, but it may surprise someone who wires a probe and expects alerts without also changing the mode back to `SENSOR`.
 - **Moisture index is not volumetric water content.** It is a 0–100 position between one probe's own measured dry and wet references. Two probes reading 40 are not necessarily equally wet in absolute terms, and the briefing/tool descriptions say so explicitly to stop it being reported as "percent water".
 - **`SoilSensorProperties` YAML is now bootstrap-only.** ADR-022 moved calibration and assignment into versioned tables; the config block still validates at startup but no runtime path reads it. It should be deleted in a later cleanup once the DB-backed path has proven itself.
 - **The dashboard has not been extended.** Crop status, soil moisture and open care loops are available over REST/MCP but the UI still renders only the original twin/assessment view. `/api/v1/state` is unchanged and backwards-compatible.

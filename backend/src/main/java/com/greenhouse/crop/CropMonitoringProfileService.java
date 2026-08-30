@@ -56,6 +56,7 @@ public class CropMonitoringProfileService {
             SoilMoistureStrategy soilMoistureStrategy,
             Double soilDryThresholdIndex,
             Double soilWetThresholdIndex,
+            SoilMonitoringMode soilMonitoringMode,
             String createdBy,
             String sourceNotes
     ) {
@@ -93,6 +94,8 @@ public class CropMonitoringProfileService {
         profile.setSoilMoistureStrategy(soilMoistureStrategy);
         profile.setSoilDryThresholdIndex(soilDryThresholdIndex);
         profile.setSoilWetThresholdIndex(soilWetThresholdIndex);
+        profile.setSoilMonitoringMode(
+                soilMonitoringMode == null ? SoilMonitoringMode.SENSOR : soilMonitoringMode);
         profile.setEnabled(true);
         profile.setCreatedAt(clock.instant());
         profile.setCreatedBy(createdBy == null || createdBy.isBlank() ? "system" : createdBy);
@@ -105,6 +108,52 @@ public class CropMonitoringProfileService {
         });
 
         return profileRepository.save(profile);
+    }
+
+    // Changing only the monitoring mode. Everything else is carried forward from
+    // the current version, so opting a crop out of sensor assessment cannot
+    // silently reset its temperature range or thresholds.
+    public CropMonitoringProfile changeSoilMonitoringMode(
+            Long cropId,
+            SoilMonitoringMode mode,
+            String rationale,
+            String actorId
+    ) {
+        if (mode == null) {
+            throw new DomainValidationException("mode is required: SENSOR or MANUAL.");
+        }
+        if (rationale == null || rationale.isBlank()) {
+            throw new DomainValidationException(
+                    "rationale is required - the reason a crop stops being sensor-assessed must be recorded, "
+                            + "not inferred later from the fact that it was.");
+        }
+        if (cropId == null || !cropRepository.existsById(cropId)) {
+            throw new CropNotFoundException(cropId);
+        }
+
+        CropMonitoringProfile current = profileRepository.findByCropIdAndEnabledTrue(cropId)
+                .orElseThrow(() -> new DomainValidationException(
+                        "Crop " + cropId + " has no enabled monitoring profile, so there is no mode to change."));
+
+        if (current.getSoilMonitoringMode() == mode) {
+            // A version whose only change is "no change" would be noise in the
+            // history and would misrepresent when the decision was actually made.
+            return current;
+        }
+
+        return createVersion(
+                cropId,
+                current.getPreferredTemperatureMinCelsius(),
+                current.getPreferredTemperatureMaxCelsius(),
+                current.getTemperatureExcursionSeconds(),
+                current.getTemperatureRecoverySeconds(),
+                current.getSoilMoistureStrategy(),
+                current.getSoilDryThresholdIndex(),
+                current.getSoilWetThresholdIndex(),
+                mode,
+                actorId == null || actorId.isBlank() ? "agent" : actorId,
+                rationale
+        );
     }
 
     private void validateThreshold(String field, Double value) {

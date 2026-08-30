@@ -30,8 +30,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-// Turns a raw ADC fact into a crop-specific soil verdict, in four steps that
-// each have an honest failure mode:
+// Turns a raw ADC fact into a crop-specific soil verdict.
+//
+// A crop whose profile says MANUAL is skipped entirely: it is tended by eye by
+// choice, so none of the checks below can say anything true about it, and
+// reporting a chosen absence as a fault produced a care loop that could never
+// close (ADR-024).
+//
+// For a SENSOR crop there are four steps, each with an honest failure mode:
 //
 //   no assignment    -> CROP_SENSOR_NOT_ASSIGNED    (never inferred as dry)
 //   no calibration   -> CROP_SENSOR_CALIBRATION_REQUIRED
@@ -45,7 +51,10 @@ import java.util.Optional;
 public class CropSoilMoistureAssessmentRule implements AssessmentRule {
 
     private static final String RULE_ID = "crop-soil-moisture";
-    private static final int RULE_VERSION = 1;
+    // 2: MANUAL crops are no longer sensor-assessed (ADR-024). Bumped because
+    // the same facts now legitimately produce a different verdict, and an
+    // assessment should say which logic reached it.
+    private static final int RULE_VERSION = 2;
 
     private final CropRepository cropRepository;
     private final CropMonitoringProfileService profileService;
@@ -91,6 +100,14 @@ public class CropSoilMoistureAssessmentRule implements AssessmentRule {
         for (Crop crop : activeCrops) {
             CropMonitoringProfile profile = profiles.get(crop.getId());
             if (profile == null) {
+                continue;
+            }
+
+            // A crop tended by eye has no sensor to be missing, uncalibrated or
+            // stale, so none of the four checks below can say anything true
+            // about it. Suppressing them is NOT a claim that its soil is fine -
+            // it is unknown, and the briefing says so explicitly (ADR-024).
+            if (profile.isManuallyMonitored()) {
                 continue;
             }
 

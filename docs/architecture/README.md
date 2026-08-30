@@ -41,7 +41,8 @@ docs/architecture/
 │   ├── ADR-020-soil-moisture-calibration-storage.md
 │   ├── ADR-021-immutable-human-in-the-loop-care-model.md
 │   ├── ADR-022-calibration-and-assignment-in-database.md
-│   └── ADR-023-outbound-notification-architecture.md
+│   ├── ADR-023-outbound-notification-architecture.md
+│   └── ADR-024-soil-monitoring-mode.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec

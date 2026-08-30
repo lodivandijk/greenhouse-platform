@@ -100,6 +100,11 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
                 text.append("      Soil:      index ").append(fmt(soil.get("moistureIndex"), ""))
                         .append(" (raw ").append(str(soil.get("rawAdc")))
                         .append(", ").append(str(soil.get("freshness")).toLowerCase()).append(")\n");
+            } else if ("MANUAL_MONITORING".equals(str(soil.get("reason")))) {
+                // Deliberately unmeasured, which is different from a fault -
+                // but still unknown, so it must not read as "fine" either
+                // (ADR-024).
+                text.append("      Soil:      NOT MEASURED - monitored by hand; check this one yourself\n");
             } else {
                 // Never let missing data read as "fine".
                 text.append("      Soil:      UNKNOWN - ").append(str(soil.get("reason"))).append("\n");

@@ -55,6 +55,10 @@ public class CropMonitoringProfile {
     @Column(name = "soil_wet_threshold_index")
     private Double soilWetThresholdIndex;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "soil_monitoring_mode")
+    private SoilMonitoringMode soilMonitoringMode;
+
     @Column(name = "enabled")
     private Boolean enabled;
 
@@ -159,6 +163,20 @@ public class CropMonitoringProfile {
 
     public void setSoilWetThresholdIndex(Double soilWetThresholdIndex) {
         this.soilWetThresholdIndex = soilWetThresholdIndex;
+    }
+
+    public SoilMonitoringMode getSoilMonitoringMode() {
+        return soilMonitoringMode;
+    }
+
+    public void setSoilMonitoringMode(SoilMonitoringMode soilMonitoringMode) {
+        this.soilMonitoringMode = soilMonitoringMode;
+    }
+
+    // Older rows predate the column's introduction and read as SENSOR, which is
+    // the behaviour they were written under (ADR-024).
+    public boolean isManuallyMonitored() {
+        return soilMonitoringMode == SoilMonitoringMode.MANUAL;
     }
 
     public Boolean getEnabled() {

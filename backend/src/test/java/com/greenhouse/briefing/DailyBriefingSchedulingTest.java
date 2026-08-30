@@ -24,7 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(properties = {
         "greenhouse.evaluation.enabled=false",
         "greenhouse.daily-briefing.enabled=false",
-        "greenhouse.outcome-evaluation.enabled=false"
+        "greenhouse.outcome-evaluation.enabled=false",
+        "greenhouse.notifications.enabled=false"
 })
 class DailyBriefingSchedulingTest {
 
