@@ -10,12 +10,18 @@ import org.springframework.stereotype.Component;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-// Generates the day's briefing at the configured local time, and also checks
-// once on startup so a platform that was switched off at 06:00 still produces
-// that day's briefing rather than silently skipping it.
+// Produces the day's briefing once it is due, and checks once on startup so a
+// platform that was switched off at the scheduled time still produces that
+// day's briefing rather than skipping it silently.
 //
-// Both paths call generateIfMissing, so the recovery cannot duplicate a
-// briefing that already exists.
+// There is deliberately ONE schedule setting. This used to carry its own cron
+// expression alongside greenhouse.daily-briefing.generate-at, so the two could
+// disagree and the cron silently won. Now the scheduler simply ticks every
+// minute and asks the service whether a briefing is due; generate-at and zone
+// are the only things that decide when that is.
+//
+// Both paths call generateIfDue, so neither can duplicate a briefing that
+// already exists.
 @Component
 @ConditionalOnProperty(
         prefix = "greenhouse.daily-briefing",
@@ -34,13 +40,8 @@ public class DailyBriefingScheduler {
         this.briefingService = briefingService;
     }
 
-    // Cron rather than fixed-delay: this must land at a wall-clock time in the
-    // greenhouse's own timezone, not N hours after the last run.
-    @Scheduled(
-            cron = "${greenhouse.daily-briefing.cron:0 0 6 * * *}",
-            zone = "${greenhouse.daily-briefing.zone:Europe/London}"
-    )
-    public void generateDailyBriefing() {
+    @Scheduled(fixedDelayString = "PT1M", initialDelayString = "PT20S")
+    public void generateDailyBriefingIfDue() {
         generate(false);
     }
 
@@ -51,12 +52,12 @@ public class DailyBriefingScheduler {
 
     private void generate(boolean missedRunRecovery) {
         if (!running.compareAndSet(false, true)) {
-            LOGGER.warn("Skipping daily briefing generation - a previous run is still in progress");
+            LOGGER.warn("Skipping daily briefing check - a previous run is still in progress");
             return;
         }
 
         try {
-            briefingService.generateIfMissing(missedRunRecovery).ifPresent(snapshot ->
+            briefingService.generateIfDue(missedRunRecovery).ifPresent(snapshot ->
                     LOGGER.info(
                             "Daily briefing snapshot created: id={} day={} recovery={}",
                             snapshot.getId(), snapshot.getGreenhouseDay(), missedRunRecovery

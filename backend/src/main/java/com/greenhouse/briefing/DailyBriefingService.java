@@ -102,14 +102,30 @@ public class DailyBriefingService {
         this.clock = clock;
     }
 
-    // Generates today's snapshot if it does not already exist. Safe to call on
-    // startup and on schedule: the existence check is what makes missed-run
-    // recovery idempotent rather than duplicating.
+    // Generates today's snapshot only when it is genuinely due: at or after the
+    // configured local time, and not already present.
+    //
+    // The time check matters as much as the existence check. Without it, any
+    // restart produced a "daily briefing" stamped with today's 06:00 schedule
+    // but actually generated at whatever hour the process happened to start -
+    // which is exactly what happened in production, where a deploy at 23:59
+    // created that day's briefing four minutes before midnight.
+    //
+    // Safe to call repeatedly from both the scheduler and startup recovery: the
+    // existence check is what keeps recovery idempotent.
     @Transactional
-    public Optional<DailyBriefingSnapshot> generateIfMissing(boolean missedRunRecovery) {
-        LocalDate today = LocalDate.ofInstant(clock.instant(), properties.zoneId());
+    public Optional<DailyBriefingSnapshot> generateIfDue(boolean missedRunRecovery) {
+        ZonedDateTime now = ZonedDateTime.ofInstant(clock.instant(), properties.zoneId());
+        LocalDate today = now.toLocalDate();
 
         if (snapshotRepository.existsByGreenhouseDay(today)) {
+            return Optional.empty();
+        }
+
+        ZonedDateTime dueAt = today.atTime(properties.generateAt()).atZone(properties.zoneId());
+        if (now.isBefore(dueAt)) {
+            // Before today's briefing time. Yesterday's snapshot stands; today's
+            // is not late, it simply has not come round yet.
             return Optional.empty();
         }
 

@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 // The seam between "a condition is being observed" and "a condition has
@@ -79,8 +80,21 @@ public class CareLoopCorrelationService {
         for (AssessmentResponse updated : changes.updated()) {
             openLoopIfDue(updated, evaluatedAt);
         }
-        for (AssessmentResponse resolved : changes.resolved()) {
-            closeLoopIfRecovered(resolved, evaluatedAt);
+
+        // Recovery is driven by loop STATE, not by this tick's deltas.
+        //
+        // Closing used to be attempted only for assessments in
+        // changes.resolved(), which holds only what resolved on this very tick
+        // - at which point no time has passed since resolution, so the recovery
+        // gate always declined, and no later tick ever revisited it (the
+        // reconciler only resolves rows that are still ACTIVE). Loops stayed
+        // open forever. Every tick now reconsiders every open loop instead.
+        closeRecoveredLoops(evaluatedAt);
+    }
+
+    private void closeRecoveredLoops(Instant evaluatedAt) {
+        for (CareLoop loop : careLoopRepository.findAllByClosedAtIsNullOrderByOpenedAtDesc()) {
+            closeIfRecovered(loop, evaluatedAt);
         }
     }
 
@@ -139,31 +153,44 @@ public class CareLoopCorrelationService {
         );
     }
 
-    private void closeLoopIfRecovered(AssessmentResponse assessment, Instant evaluatedAt) {
-        String loopKey = loopCorrelationKey(assessment);
-        Optional<CareLoop> existing = careLoopRepository.findByCorrelationKeyAndClosedAtIsNull(loopKey);
-        if (existing.isEmpty()) {
-            return;
-        }
-
-        CareLoop loop = existing.get();
-
-        Instant resolvedAt = assessment.resolvedAt() == null ? evaluatedAt : assessment.resolvedAt();
-        Duration recovery = recoveryDurationFor(assessment);
-        if (Duration.between(resolvedAt, evaluatedAt).compareTo(recovery) < 0) {
-            return;
-        }
-
-        // Another still-active assessment linked to this loop keeps it open -
-        // e.g. one crop recovered but others in the same ventilation loop have
-        // not.
-        boolean otherActiveLinked = careLoopAssessmentRepository.findAllByCareLoopId(loop.getId()).stream()
+    // Closes one open loop if every assessment supporting it has resolved and
+    // the most recent of those resolutions is older than the recovery duration.
+    //
+    // Reading the loop's own linked assessments rather than a tick delta is
+    // what makes this work on any later tick, not just the one that happened to
+    // resolve something.
+    private void closeIfRecovered(CareLoop loop, Instant evaluatedAt) {
+        List<AssessmentEntity> linked = careLoopAssessmentRepository.findAllByCareLoopId(loop.getId()).stream()
                 .map(CareLoopAssessment::getAssessmentId)
-                .filter(id -> !id.equals(assessment.id()))
                 .map(assessmentRepository::findById)
                 .flatMap(Optional::stream)
-                .anyMatch(a -> a.getStatus() == AssessmentStatus.ACTIVE);
-        if (otherActiveLinked) {
+                .toList();
+
+        if (linked.isEmpty()) {
+            return;
+        }
+
+        // Any still-active supporting assessment keeps the loop open - one crop
+        // recovering does not close a shared greenhouse ventilation loop while
+        // others are still too warm.
+        boolean anyStillActive = linked.stream()
+                .anyMatch(assessment -> assessment.getStatus() == AssessmentStatus.ACTIVE);
+        if (anyStillActive) {
+            return;
+        }
+
+        Optional<Instant> latestResolvedAt = linked.stream()
+                .map(AssessmentEntity::getResolvedAt)
+                .filter(Objects::nonNull)
+                .max(Instant::compareTo);
+        if (latestResolvedAt.isEmpty()) {
+            return;
+        }
+
+        Duration recovery = recoveryDurationForLoop(linked);
+        if (Duration.between(latestResolvedAt.get(), evaluatedAt).compareTo(recovery) < 0) {
+            // Resolved, but not yet clear for long enough. A later tick will
+            // reconsider this same loop.
             return;
         }
 
@@ -177,6 +204,20 @@ public class CareLoopCorrelationService {
         ));
 
         LOGGER.info("Care loop closed: id={} correlationKey={}", loop.getId(), loop.getCorrelationKey());
+    }
+
+    // The longest recovery duration among the loop's crops, so a shared loop
+    // waits for the most cautious crop rather than the first one to recover.
+    private Duration recoveryDurationForLoop(List<AssessmentEntity> linked) {
+        return linked.stream()
+                .map(AssessmentEntity::getCropId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .map(profileService::findEnabledProfile)
+                .flatMap(Optional::stream)
+                .map(CropMonitoringProfile::temperatureRecoveryDuration)
+                .max(Duration::compareTo)
+                .orElse(DEFAULT_RECOVERY);
     }
 
     private boolean hasPersistedLongEnough(AssessmentResponse assessment, Instant evaluatedAt) {
@@ -196,12 +237,6 @@ public class CareLoopCorrelationService {
         return profileFor(assessment)
                 .map(CropMonitoringProfile::temperatureExcursionDuration)
                 .orElse(DEFAULT_EXCURSION);
-    }
-
-    private Duration recoveryDurationFor(AssessmentResponse assessment) {
-        return profileFor(assessment)
-                .map(CropMonitoringProfile::temperatureRecoveryDuration)
-                .orElse(DEFAULT_RECOVERY);
     }
 
     private Optional<CropMonitoringProfile> profileFor(AssessmentResponse assessment) {
