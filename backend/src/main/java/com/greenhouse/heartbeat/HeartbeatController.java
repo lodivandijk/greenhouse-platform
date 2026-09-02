@@ -1,7 +1,9 @@
 package com.greenhouse.heartbeat;
 
+import com.greenhouse.common.security.DeviceIdentityGuard;
 import com.greenhouse.device.DeviceService;
 import com.greenhouse.device.DeviceStatus;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,16 +22,21 @@ public class HeartbeatController {
             LoggerFactory.getLogger(HeartbeatController.class);
 
     private final DeviceService deviceService;
+    private final DeviceIdentityGuard deviceIdentityGuard;
 
-    public HeartbeatController(DeviceService deviceService) {
+    public HeartbeatController(DeviceService deviceService, DeviceIdentityGuard deviceIdentityGuard) {
         this.deviceService = deviceService;
+        this.deviceIdentityGuard = deviceIdentityGuard;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public DeviceStatus receiveHeartbeat(
-            @Valid @RequestBody HeartbeatRequest request
+            @Valid @RequestBody HeartbeatRequest request,
+            HttpServletRequest httpRequest
     ) {
+        deviceIdentityGuard.verify(httpRequest, request.deviceId());
+
         DeviceStatus status = deviceService.recordHeartbeat(request);
 
         LOGGER.info(

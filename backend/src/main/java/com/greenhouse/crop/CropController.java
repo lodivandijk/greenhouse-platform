@@ -87,7 +87,7 @@ public class CropController {
 
     @DeleteMapping("/{cropId}/harvests/{harvestId}")
     public HarvestResponse deleteHarvest(@PathVariable Long cropId, @PathVariable Long harvestId) {
-        return harvestService.deleteHarvest(harvestId);
+        return harvestService.deleteHarvest(cropId, harvestId);
     }
 
     @PostMapping("/{cropId}/observations")
@@ -105,7 +105,7 @@ public class CropController {
 
     @DeleteMapping("/{cropId}/observations/{observationId}")
     public CropObservationResponse deleteObservation(@PathVariable Long cropId, @PathVariable Long observationId) {
-        return cropObservationService.deleteObservation(observationId);
+        return cropObservationService.deleteObservation(cropId, observationId);
     }
 
     @PostMapping("/{cropId}/goals")
@@ -122,6 +122,6 @@ public class CropController {
 
     @DeleteMapping("/{cropId}/goals/{goalId}")
     public GoalResponse deleteGoal(@PathVariable Long cropId, @PathVariable Long goalId) {
-        return goalService.deleteGoal(goalId);
+        return goalService.deleteGoal(cropId, goalId);
     }
 }

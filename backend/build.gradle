@@ -48,6 +48,14 @@ tasks.named('test') {
     // Set here rather than in a test application.yml, which would shadow the
     // main configuration entirely rather than merging with it.
     systemProperty 'spring.datasource.hikari.maximum-pool-size', '3'
+
+    // The REST surface is authenticated by default (ADR-025), which would make
+    // every controller test a 401. Relaxed here rather than in twenty
+    // @SpringBootTest property blocks, each of which would cost another cached
+    // application context. The filter's own decisions are covered directly by
+    // ApiAuthenticationTest, which turns enforcement back on explicitly.
+    systemProperty 'greenhouse.security.admin-auth-required', 'false'
+    systemProperty 'greenhouse.security.device-auth-required', 'false'
 }
 
 tasks.named('bootJar') {

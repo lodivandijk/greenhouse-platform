@@ -29,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.Locale;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +45,10 @@ import java.util.Optional;
 public class OutcomeService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OutcomeService.class);
+
+    // Probe readings jitter by a point or two between samples. A change smaller
+    // than this is not evidence of anything, in either direction.
+    private static final double NOISE_TOLERANCE_INDEX_POINTS = 1.0;
 
     private final OutcomeRepository outcomeRepository;
     private final OutcomeReviewEventRepository reviewEventRepository;
@@ -112,11 +118,11 @@ public class OutcomeService {
         Decision decision = decisionService.requireDecision(command.getDecisionId());
 
         Evaluation evaluation = switch (decision.getEvaluationMethod()) {
-            case SENSOR_BASED -> evaluateFromSensor(decision, execution);
+            case SENSOR_BASED -> evaluateFromSensor(decision, execution, schedule);
             case ASSESSMENT_RESOLVED -> evaluateFromAssessments(decision);
             case HUMAN_CONFIRMED -> evaluateFromHumanReport(execution);
             case HYBRID -> {
-                Evaluation sensor = evaluateFromSensor(decision, execution);
+                Evaluation sensor = evaluateFromSensor(decision, execution, schedule);
                 yield sensor.result() == OutcomeResult.INCONCLUSIVE
                         ? evaluateFromHumanReport(execution)
                         : sensor;
@@ -154,7 +160,19 @@ public class OutcomeService {
         return Optional.of(saved);
     }
 
-    private Evaluation evaluateFromSensor(Decision decision, Execution execution) {
+    // Measures the change the WORK caused, which requires knowing what the soil
+    // was like before it.
+    //
+    // The previous implementation compared the first and last readings taken
+    // after the execution, with no upper bound. That measured drift between two
+    // post-action moments and attributed it to the action: since a probe
+    // responds to watering within a minute and then dries back over the window,
+    // successful watering was typically recorded as FAILED. Outcome labels feed
+    // the evidence base this platform exists to build, so a wrong label is
+    // worse than no label (ADR-026).
+    private Evaluation evaluateFromSensor(
+            Decision decision, Execution execution, OutcomeEvaluationSchedule schedule
+    ) {
         Map<String, Object> evidence = new HashMap<>();
         evidence.put("evaluationMethod", "SENSOR_BASED");
 
@@ -178,14 +196,6 @@ public class OutcomeService {
         String sensorId = assignment.get().getSensorId();
         evidence.put("sensorId", sensorId);
 
-        List<SoilMoistureReadingEntity> after = soilMoistureReadingRepository
-                .findAllBySensorIdAndReceivedAtAfterOrderByReceivedAtDesc(sensorId, execution.getCompletedAt());
-        if (after.isEmpty()) {
-            evidence.put("reason", "NO_READINGS_SINCE_EXECUTION");
-            return new Evaluation(OutcomeResult.INCONCLUSIVE, evidence,
-                    "No probe readings arrived after the work was done, so its effect is unknown.");
-        }
-
         Optional<SensorCalibration> calibration = calibrationService.findCurrentCalibration(sensorId);
         if (calibration.isEmpty()) {
             evidence.put("reason", "CALIBRATION_REQUIRED");
@@ -193,34 +203,87 @@ public class OutcomeService {
                     "The probe has no calibration, so its readings cannot be interpreted as a moisture index.");
         }
 
-        SoilMoistureReadingEntity latest = after.get(0);
-        SoilMoistureReadingEntity earliest = after.get(after.size() - 1);
-        MoistureIndex latestIndex = calibrationService.calculateIndex(calibration.get(), latest.getRawAdc());
-        MoistureIndex earliestIndex = calibrationService.calculateIndex(calibration.get(), earliest.getRawAdc());
+        Instant completedAt = execution.getCompletedAt();
+        Instant windowStart = schedule.getEvaluateAfter();
+        Instant windowEnd = schedule.getWindowEnd();
+        evidence.put("baselineTakenAtOrBefore", String.valueOf(completedAt));
+        evidence.put("evaluationWindowStart", String.valueOf(windowStart));
+        evidence.put("evaluationWindowEnd", String.valueOf(windowEnd));
 
-        evidence.put("moistureIndexAfter", latestIndex.value());
-        evidence.put("moistureIndexFirstReadingAfter", earliestIndex.value());
-        evidence.put("readingsConsidered", after.size());
-        evidence.put("latestReadingAt", String.valueOf(latest.getReceivedAt()));
+        Optional<SoilMoistureReadingEntity> baselineReading = soilMoistureReadingRepository
+                .findFirstBySensorIdAndReceivedAtLessThanEqualOrderByReceivedAtDesc(sensorId, completedAt);
+        if (baselineReading.isEmpty()) {
+            // Without a "before" there is no honest way to attribute a change.
+            evidence.put("reason", "NO_BASELINE_READING");
+            return new Evaluation(OutcomeResult.INCONCLUSIVE, evidence,
+                    "No probe reading exists from before the work was carried out, so any later change "
+                            + "cannot be attributed to it.");
+        }
 
-        // For watering, the expected direction is wetter. A rise in the index
-        // is the observable effect; no rise is a real, reportable failure.
-        double change = latestIndex.value() - earliestIndex.value();
+        // Bounded at both ends: readings arriving after the window belong to a
+        // later story, not this one.
+        List<SoilMoistureReadingEntity> withinWindow = soilMoistureReadingRepository
+                .findAllBySensorIdAndReceivedAtBetweenOrderByReceivedAtAsc(sensorId, windowStart, windowEnd);
+        if (withinWindow.isEmpty()) {
+            evidence.put("reason", "NO_READINGS_IN_EVALUATION_WINDOW");
+            return new Evaluation(OutcomeResult.INCONCLUSIVE, evidence,
+                    "No probe readings arrived during the evaluation window, so the effect of the work "
+                            + "is unknown.");
+        }
+
+        MoistureIndex baselineIndex =
+                calibrationService.calculateIndex(calibration.get(), baselineReading.get().getRawAdc());
+
+        SoilMoistureReadingEntity peakReading = withinWindow.stream()
+                .max(Comparator.comparingDouble(reading ->
+                        calibrationService.calculateIndex(calibration.get(), reading.getRawAdc()).value()))
+                .orElseThrow();
+        SoilMoistureReadingEntity finalReading = withinWindow.get(withinWindow.size() - 1);
+
+        MoistureIndex peakIndex = calibrationService.calculateIndex(calibration.get(), peakReading.getRawAdc());
+        MoistureIndex finalIndex = calibrationService.calculateIndex(calibration.get(), finalReading.getRawAdc());
+
+        evidence.put("baselineMoistureIndex", baselineIndex.value());
+        evidence.put("baselineRawAdc", baselineReading.get().getRawAdc());
+        evidence.put("baselineReadingAt", String.valueOf(baselineReading.get().getReceivedAt()));
+        evidence.put("peakMoistureIndexInWindow", peakIndex.value());
+        evidence.put("peakReadingAt", String.valueOf(peakReading.getReceivedAt()));
+        evidence.put("finalMoistureIndexInWindow", finalIndex.value());
+        evidence.put("finalReadingAt", String.valueOf(finalReading.getReceivedAt()));
+        evidence.put("readingsConsidered", withinWindow.size());
+        // Recorded so a later recalibration cannot silently change what this
+        // outcome appears to have measured.
+        evidence.put("calibrationId", calibration.get().getId());
+        evidence.put("calibrationVersion", calibration.get().getVersion());
+        evidence.put("noiseToleranceIndexPoints", NOISE_TOLERANCE_INDEX_POINTS);
+        evidence.put("note", "Change is measured against the last reading at or before the work was "
+                + "completed, using only readings inside the stored evaluation window.");
+
+        // The wettest moment in the window is the fairest test of whether water
+        // actually reached the soil: comparing only the final reading would
+        // score normal drying as a failure all over again.
+        double change = peakIndex.value() - baselineIndex.value();
         evidence.put("moistureIndexChange", change);
 
-        if (latestIndex.value() > earliestIndex.value()) {
+        if (change > NOISE_TOLERANCE_INDEX_POINTS) {
             return new Evaluation(OutcomeResult.SUCCESS, evidence,
-                    String.format("Soil moisture index rose to %.0f after the work was carried out.",
-                            latestIndex.value()));
+                    String.format(Locale.ROOT,
+                            "Soil moisture index rose from %.0f before the work to %.0f during the "
+                                    + "evaluation window (settling at %.0f).",
+                            baselineIndex.value(), peakIndex.value(), finalIndex.value()));
         }
-        if (Math.abs(change) < 1.0) {
+        if (Math.abs(change) <= NOISE_TOLERANCE_INDEX_POINTS) {
             return new Evaluation(OutcomeResult.PARTIAL, evidence,
-                    String.format("Soil moisture index barely moved (%.0f), which is less response than expected.",
-                            latestIndex.value()));
+                    String.format(Locale.ROOT,
+                            "Soil moisture index barely moved (%.0f before, %.0f at its highest), which is "
+                                    + "less response than expected.",
+                            baselineIndex.value(), peakIndex.value()));
         }
         return new Evaluation(OutcomeResult.FAILED, evidence,
-                String.format("Soil moisture index fell to %.0f rather than rising after the work.",
-                        latestIndex.value()));
+                String.format(Locale.ROOT,
+                        "Soil moisture index never rose above %.0f during the window, below the %.0f "
+                                + "measured before the work.",
+                        peakIndex.value(), baselineIndex.value()));
     }
 
     private Evaluation evaluateFromAssessments(Decision decision) {

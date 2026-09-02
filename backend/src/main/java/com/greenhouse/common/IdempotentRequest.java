@@ -64,6 +64,9 @@ public class IdempotentRequest {
     public String getResultJson() { return resultJson; }
     public void setResultJson(String resultJson) { this.resultJson = resultJson; }
     public Instant getCreatedAt() { return createdAt; }
+    // Reset when an abandoned reservation is taken over, so the new owner's
+    // timeout runs from when IT started rather than from the crashed attempt.
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getCompletedAt() { return completedAt; }
     public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
 }

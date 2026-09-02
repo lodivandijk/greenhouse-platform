@@ -50,9 +50,25 @@ public class HarvestService {
                 .toList();
     }
 
-    public HarvestResponse deleteHarvest(Long harvestId) {
-        Harvest harvest = harvestRepository.findById(harvestId)
+    // The nested route DELETE /crops/{cropId}/harvests/{harvestId} names a parent,
+    // so the parent must be true. Without this the path segment was decorative
+    // and a caller could address one crop while deleting another crop's record.
+    public HarvestResponse deleteHarvest(Long cropId, Long harvestId) {
+        Harvest harvest = requireHarvest(harvestId);
+        if (cropId != null && !cropId.equals(harvest.getCropId())) {
+            throw new DomainValidationException(
+                    "Harvest " + harvestId + " does not belong to crop " + cropId + ".");
+        }
+        return deleteHarvest(harvestId);
+    }
+
+    private Harvest requireHarvest(Long harvestId) {
+        return harvestRepository.findById(harvestId)
                 .orElseThrow(() -> new HarvestNotFoundException(harvestId));
+    }
+
+    public HarvestResponse deleteHarvest(Long harvestId) {
+        Harvest harvest = requireHarvest(harvestId);
         HarvestResponse response = cropMapper.toResponse(harvest);
         harvestRepository.delete(harvest);
         return response;

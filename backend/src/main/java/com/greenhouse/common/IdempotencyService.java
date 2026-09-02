@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Optional;
@@ -18,23 +19,62 @@ import java.util.function.Supplier;
 
 // Makes care-loop writes safe to retry.
 //
-// The guarantee is stronger than "no duplicate rows": on a retry the stored
-// result is returned and the action is NOT re-run, so a repeated approval
-// cannot issue a second command and a repeated execution report cannot create
-// a second execution (ADR-021).
+// A sequential retry replays the stored result rather than re-running, and a
+// CONCURRENT retry is refused rather than run twice - reserve() reports who
+// owns the right to proceed, and only that caller executes. This matters most
+// for executions, which unlike commands have no unique constraint standing
+// behind them (ADR-021, ADR-027).
+//
+// The one case that is NOT protected: if a caller dies after reserving and
+// before recording an outcome, the reservation is taken over once it goes stale
+// and the action runs again. Re-running is the lesser evil against wedging that
+// key permanently, but it means the honest guarantee is at-least-once for
+// crashed requests, not exactly-once.
 @Service
 public class IdempotencyService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IdempotencyService.class);
 
-    private static final String STATUS_COMPLETED = "COMPLETED";
+    static final String STATUS_COMPLETED = "COMPLETED";
+    static final String STATUS_IN_PROGRESS = "IN_PROGRESS";
+
+    // How long a reservation may sit un-completed before it is assumed to
+    // belong to a caller that died. Long enough that a slow-but-live request is
+    // never stolen from; short enough that a crash does not brick that key
+    // forever.
+    private static final Duration RESERVATION_TIMEOUT = Duration.ofMinutes(5);
 
     private final IdempotentRequestRepository requestRepository;
+    private final IdempotentRequestWriter requestWriter;
     private final Clock clock;
 
-    public IdempotencyService(IdempotentRequestRepository requestRepository, Clock clock) {
+    public IdempotencyService(
+            IdempotentRequestRepository requestRepository,
+            IdempotentRequestWriter requestWriter,
+            Clock clock
+    ) {
         this.requestRepository = requestRepository;
+        this.requestWriter = requestWriter;
         this.clock = clock;
+    }
+
+    // Who owns the right to run the action.
+    //
+    // The previous version returned void and swallowed the duplicate-key
+    // exception, so BOTH callers of a concurrently-retried request proceeded to
+    // run it. Database constraints hid that for some operations - a second
+    // command cannot be issued for one decision - but nothing stopped a second
+    // execution row, which is precisely the case the class comment promised was
+    // safe.
+    public enum Reservation {
+        // This caller created the reservation and must run the action.
+        ACQUIRED,
+        // Another caller already ran it; its stored result should be replayed.
+        ALREADY_COMPLETED,
+        // Another caller is running it right now. Do NOT run it as well.
+        IN_PROGRESS,
+        // Same key, different request. A caller bug, not a retry.
+        CONFLICT
     }
 
     public String fingerprint(String toolName, Object arguments) {
@@ -64,17 +104,49 @@ public class IdempotencyService {
                 });
     }
 
-    // Reserved in its own transaction so the row survives even if the action
-    // that follows rolls back - the unique constraint on idempotency_key is
-    // what makes concurrent duplicate submissions safe.
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void reserve(String idempotencyKey, String toolName, String fingerprint) {
+    // Attempts to take ownership, and says whether it succeeded. Only a caller
+    // that receives ACQUIRED may run the action.
+    //
+    // The insert happens in its own transaction so the row survives even if the
+    // action that follows rolls back; the unique constraint on idempotency_key
+    // is what decides the race.
+    public Reservation reserve(String idempotencyKey, String toolName, String fingerprint) {
+        Instant now = clock.instant();
+
         try {
-            requestRepository.save(new IdempotentRequest(
-                    idempotencyKey, toolName, fingerprint, "IN_PROGRESS", clock.instant()));
+            requestWriter.insertReservation(idempotencyKey, toolName, fingerprint, now);
+            return Reservation.ACQUIRED;
         } catch (DataIntegrityViolationException e) {
-            LOGGER.debug("Idempotency key {} already reserved", idempotencyKey);
+            LOGGER.debug("Idempotency key {} was already reserved by another caller", idempotencyKey);
         }
+
+        // Lost the race, or the key already existed. Find out which, in a
+        // transaction that has not been poisoned by the constraint violation.
+        Optional<IdempotentRequest> existing = requestRepository.findByIdempotencyKey(idempotencyKey);
+        if (existing.isEmpty()) {
+            // Vanishingly unlikely: inserted and deleted between the two
+            // statements. Treat it as contended rather than guessing.
+            return Reservation.IN_PROGRESS;
+        }
+
+        IdempotentRequest request = existing.get();
+        if (!request.getRequestFingerprint().equals(fingerprint)) {
+            return Reservation.CONFLICT;
+        }
+        if (STATUS_COMPLETED.equals(request.getStatus())) {
+            return Reservation.ALREADY_COMPLETED;
+        }
+
+        // An IN_PROGRESS row whose owner never recorded an outcome would
+        // otherwise wedge this key permanently, turning "might run twice" into
+        // "can never run again" - which for someone trying to record work they
+        // have actually done is worse.
+        if (requestWriter.takeOverAbandonedReservation(
+                idempotencyKey, now.minus(RESERVATION_TIMEOUT), now)) {
+            return Reservation.ACQUIRED;
+        }
+
+        return Reservation.IN_PROGRESS;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -106,7 +178,21 @@ public class IdempotencyService {
             return new IdempotentOutcome<>(null, completed.get(), true);
         }
 
-        reserve(idempotencyKey, toolName, fingerprint);
+        Reservation reservation = reserve(idempotencyKey, toolName, fingerprint);
+        switch (reservation) {
+            case ALREADY_COMPLETED -> {
+                return new IdempotentOutcome<>(null,
+                        findCompletedResult(idempotencyKey, toolName, fingerprint).orElse(null), true);
+            }
+            case IN_PROGRESS -> throw new IdempotencyInProgressException(idempotencyKey);
+            case CONFLICT -> throw new IdempotencyConflictException(
+                    "Idempotency key '" + idempotencyKey + "' is already in use for a different request. "
+                            + "Use a new key for a new request.");
+            default -> {
+                // ACQUIRED: this caller owns it.
+            }
+        }
+
         T result = action.get();
         return new IdempotentOutcome<>(result, null, false);
     }

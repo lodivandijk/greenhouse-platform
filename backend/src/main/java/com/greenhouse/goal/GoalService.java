@@ -73,8 +73,24 @@ public class GoalService {
                 .toList();
     }
 
+    // The nested route DELETE /crops/{cropId}/goals/{goalId} names a parent,
+    // so the parent must be true. Without this the path segment was decorative
+    // and a caller could address one crop while deleting another crop's record.
+    public GoalResponse deleteGoal(Long cropId, Long goalId) {
+        Goal goal = requireGoal(goalId);
+        if (cropId != null && !cropId.equals(goal.getCropId())) {
+            throw new DomainValidationException(
+                    "Goal " + goalId + " does not belong to crop " + cropId + ".");
+        }
+        return deleteGoal(goalId);
+    }
+
+    private Goal requireGoal(Long goalId) {
+        return goalRepository.findById(goalId).orElseThrow(() -> new GoalNotFoundException(goalId));
+    }
+
     public GoalResponse deleteGoal(Long goalId) {
-        Goal goal = goalRepository.findById(goalId).orElseThrow(() -> new GoalNotFoundException(goalId));
+        Goal goal = requireGoal(goalId);
         GoalResponse response = goalMapper.toResponse(goal);
         goalRepository.delete(goal);
         return response;

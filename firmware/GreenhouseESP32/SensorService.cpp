@@ -99,7 +99,12 @@ void SensorService::sendObservation() {
       soilReadingCount
   );
 
-  if (httpCode > 0) {
+  if (httpCode == 401 || httpCode == 403) {
+    Logger::error(
+        "Observation REJECTED (" + String(httpCode) + "): the API device token was not accepted. "
+        "Check Secrets::API_DEVICE_TOKEN against the backend configuration."
+    );
+  } else if (httpCode > 0) {
     Logger::info("Observation HTTP response: " + String(httpCode));
   } else {
     Logger::error("Observation HTTP request failed: " + String(httpCode));

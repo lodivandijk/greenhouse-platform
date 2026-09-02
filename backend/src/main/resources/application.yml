@@ -95,3 +95,17 @@ greenhouse:
         from: ${GREENHOUSE_EMAIL_FROM:}
         to: ${GREENHOUSE_EMAIL_TO:lodi.van.dijk@gmail.com}
         message-id-domain: ${GREENHOUSE_EMAIL_MESSAGE_ID_DOMAIN:greenhouse.local}
+
+  # REST authentication (ADR-025). Every value is environment-backed.
+  #
+  # Reads and the dashboard are deliberately open on the local network; writes
+  # and deletes are not. Devices get their own per-device tokens rather than
+  # sharing the admin one.
+  security:
+    admin-token: ${GREENHOUSE_ADMIN_TOKEN:}
+    admin-auth-required: ${GREENHOUSE_ADMIN_AUTH_REQUIRED:true}
+    # Enforced by default so a fresh deployment is never accidentally open.
+    # Relaxing it is a deliberate, temporary migration step.
+    device-auth-required: ${GREENHOUSE_DEVICE_AUTH_REQUIRED:true}
+    device-tokens:
+      greenhouse-esp32-01: ${GREENHOUSE_DEVICE_TOKEN_ESP32_01:}

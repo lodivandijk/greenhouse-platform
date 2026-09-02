@@ -1,6 +1,8 @@
 package com.greenhouse.mcp;
 
 import com.greenhouse.common.DomainValidationException;
+import com.greenhouse.common.IdempotencyConflictException;
+import com.greenhouse.common.IdempotencyInProgressException;
 import com.greenhouse.common.IdempotencyService;
 import com.greenhouse.crop.CropMonitoringProfile;
 import com.greenhouse.crop.CropMonitoringProfileService;
@@ -16,6 +18,7 @@ import org.springframework.context.annotation.Configuration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 // Changing how a crop's soil is monitored is configuration, not evidence. It
 // gets a real tool with a required rationale rather than being inferred from a
@@ -83,24 +86,13 @@ public class CropMonitoringProfileTools {
                     String actorId = McpToolSupport.optionalString(arguments, "actorId");
 
                     String key = McpToolSupport.optionalString(arguments, "idempotencyKey");
-                    if (key == null || key.isBlank()) {
-                        throw new DomainValidationException(
-                                "idempotencyKey is required so this operation is safe to retry.");
-                    }
 
-                    String fingerprint =
-                            idempotencyService.fingerprint("set_crop_soil_monitoring_mode", arguments);
-                    var replayed = idempotencyService.findCompletedResult(
-                            key, "set_crop_soil_monitoring_mode", fingerprint);
+                    Optional<Object> replayed = McpIdempotency.guard(
+                            idempotencyService, key, "set_crop_soil_monitoring_mode", arguments);
                     if (replayed.isPresent()) {
-                        return Map.of(
-                                "replayed", true,
-                                "note", "This request was already processed; returning the original result.",
-                                "result", replayed.get()
-                        );
+                        return replayed.get();
                     }
 
-                    idempotencyService.reserve(key, "set_crop_soil_monitoring_mode", fingerprint);
                     CropMonitoringProfile profile =
                             profileService.changeSoilMonitoringMode(cropId, mode, rationale, actorId);
                     Object view = describe(profile);

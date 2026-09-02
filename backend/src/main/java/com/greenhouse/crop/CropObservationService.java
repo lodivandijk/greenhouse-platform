@@ -80,9 +80,25 @@ public class CropObservationService {
                 .toList();
     }
 
-    public CropObservationResponse deleteObservation(Long observationId) {
-        CropObservation observation = cropObservationRepository.findById(observationId)
+    // The nested route DELETE /crops/{cropId}/observations/{observationId} names a parent,
+    // so the parent must be true. Without this the path segment was decorative
+    // and a caller could address one crop while deleting another crop's record.
+    public CropObservationResponse deleteObservation(Long cropId, Long observationId) {
+        CropObservation observation = requireCropObservation(observationId);
+        if (cropId != null && !cropId.equals(observation.getCropId())) {
+            throw new DomainValidationException(
+                    "CropObservation " + observationId + " does not belong to crop " + cropId + ".");
+        }
+        return deleteObservation(observationId);
+    }
+
+    private CropObservation requireCropObservation(Long observationId) {
+        return cropObservationRepository.findById(observationId)
                 .orElseThrow(() -> new CropObservationNotFoundException(observationId));
+    }
+
+    public CropObservationResponse deleteObservation(Long observationId) {
+        CropObservation observation = requireCropObservation(observationId);
         CropObservationResponse response = cropMapper.toResponse(observation);
         cropObservationRepository.delete(observation);
         return response;

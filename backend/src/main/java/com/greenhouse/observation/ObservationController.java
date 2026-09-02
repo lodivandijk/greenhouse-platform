@@ -1,5 +1,7 @@
 package com.greenhouse.observation;
 
+import com.greenhouse.common.security.DeviceIdentityGuard;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,16 +24,22 @@ public class ObservationController {
             LoggerFactory.getLogger(ObservationController.class);
 
     private final ObservationService observationService;
+    private final DeviceIdentityGuard deviceIdentityGuard;
 
-    public ObservationController(ObservationService observationService) {
+    public ObservationController(
+            ObservationService observationService, DeviceIdentityGuard deviceIdentityGuard) {
         this.observationService = observationService;
+        this.deviceIdentityGuard = deviceIdentityGuard;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ObservationStatus receiveObservation(
-            @Valid @RequestBody ObservationRequest request
+            @Valid @RequestBody ObservationRequest request,
+            HttpServletRequest httpRequest
     ) {
+        deviceIdentityGuard.verify(httpRequest, request.deviceId());
+
         ObservationStatus status = observationService.record(request);
 
         LOGGER.info(

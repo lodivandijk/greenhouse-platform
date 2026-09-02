@@ -17,6 +17,8 @@ import com.greenhouse.careloop.outcome.OutcomeService;
 import com.greenhouse.careloop.scope.LoopRecordType;
 import com.greenhouse.careloop.scope.LoopScope;
 import com.greenhouse.common.DomainValidationException;
+import com.greenhouse.common.IdempotencyConflictException;
+import com.greenhouse.common.IdempotencyInProgressException;
 import com.greenhouse.common.IdempotencyService;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -28,6 +30,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 // Every tool here requires an idempotencyKey, and every tool that records a
@@ -88,22 +91,13 @@ public class CareLoopWriteTools {
             Supplier<Long> action
     ) {
         String key = McpToolSupport.optionalString(request.arguments(), "idempotencyKey");
-        if (key == null || key.isBlank()) {
-            throw new DomainValidationException(
-                    "idempotencyKey is required so this operation is safe to retry.");
-        }
 
-        String fingerprint = idempotencyService.fingerprint(toolName, request.arguments());
-        var replayed = idempotencyService.findCompletedResult(key, toolName, fingerprint);
+        Optional<Object> replayed = McpIdempotency.guard(
+                idempotencyService, key, toolName, request.arguments());
         if (replayed.isPresent()) {
-            return Map.of(
-                    "replayed", true,
-                    "note", "This request was already processed; returning the original result.",
-                    "result", replayed.get()
-            );
+            return replayed.get();
         }
 
-        idempotencyService.reserve(key, toolName, fingerprint);
         Long careLoopId = action.get();
         Object view = careLoopQueryService.loopDetail(careLoopId);
 
@@ -111,8 +105,10 @@ public class CareLoopWriteTools {
             idempotencyService.complete(key, mcpJsonMapper.writeValueAsString(view));
         } catch (Exception e) {
             // The work itself succeeded; failing to cache the response for
-            // replay must not fail the call. A retry will simply re-run rather
-            // than replay, which the domain services are guarded against.
+            // replay must not fail the call. The reservation then stays
+            // IN_PROGRESS, so an immediate retry is told to wait rather than
+            // duplicating the work, and only after the reservation timeout is
+            // the action re-run.
             LOGGER.warn("Could not store idempotent result for key {}: {}", key, e.getMessage());
         }
         return view;

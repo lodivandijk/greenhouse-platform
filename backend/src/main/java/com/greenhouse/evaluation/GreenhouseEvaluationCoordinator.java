@@ -43,9 +43,17 @@ public class GreenhouseEvaluationCoordinator {
         long startNanos = System.nanoTime();
         AssessmentChanges changes = assessmentService.assessAndReconcile(twin, evaluatedAt);
 
-        // Same tick, same evaluatedAt, same transaction boundary as the
-        // reconciliation that produced these changes - a second scheduler
-        // would race against this one.
+        // Same tick and same evaluatedAt as the reconciliation that produced
+        // these changes, but NOT the same transaction: reconcile() has already
+        // committed by the time this runs, and correlate() opens its own.
+        //
+        // That is accepted eventual consistency rather than atomicity. If
+        // correlation fails here, the assessments still stand and the next
+        // tick re-correlates from loop state, so an immediately-actionable
+        // condition can be up to a minute late but is not lost. Wrapping both
+        // in one transaction would mean a bookkeeping failure discarding a
+        // legitimate observation about the greenhouse, which is the worse
+        // trade. A second scheduler would still race against this one.
         careLoopCorrelationService.correlate(changes, evaluatedAt);
 
         long durationMs = (System.nanoTime() - startNanos) / 1_000_000;

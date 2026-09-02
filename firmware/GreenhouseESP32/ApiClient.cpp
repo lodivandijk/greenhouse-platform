@@ -3,6 +3,7 @@
 #include <HTTPClient.h>
 
 #include "Config.h"
+#include "Secrets.h"
 #include "SoilMoistureSensor.h"
 
 int ApiClient::sendHeartbeat(
@@ -16,6 +17,7 @@ int ApiClient::sendHeartbeat(
   http.setTimeout(Config::API_TIMEOUT_MS);
   http.begin(buildUrl());
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + Secrets::API_DEVICE_TOKEN);
 
   const String payload = buildPayload(
       deviceId,
@@ -66,6 +68,7 @@ int ApiClient::sendObservation(
   http.setTimeout(Config::API_TIMEOUT_MS);
   http.begin(buildObservationUrl());
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + Secrets::API_DEVICE_TOKEN);
 
   const String payload = buildObservationPayload(
       deviceId,

@@ -60,7 +60,17 @@ void HeartbeatService::sendHeartbeat() {
       uptimeSeconds
   );
 
-  if (httpCode > 0) {
+  if (httpCode == 401 || httpCode == 403) {
+    // A rejected credential looks exactly like a healthy request to anything
+    // that only checks "did we get a response", so it is called out loudly:
+    // otherwise the greenhouse goes quiet and the first sign is a
+    // DEVICE_OFFLINE assessment an hour later (ADR-025).
+    Logger::error(
+        "Heartbeat " + String(heartbeatNumber)
+        + " REJECTED (" + String(httpCode) + "): the API device token was not accepted. "
+        + "Check Secrets::API_DEVICE_TOKEN against the backend configuration."
+    );
+  } else if (httpCode > 0) {
     Logger::info(
         "Heartbeat " + String(heartbeatNumber)
         + " HTTP response: " + String(httpCode)
