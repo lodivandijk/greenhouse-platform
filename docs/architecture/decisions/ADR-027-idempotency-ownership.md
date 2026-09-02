@@ -1,7 +1,7 @@
 # ADR-027: A Reservation Reports Who Owns It
 
 **Status:** Accepted
-**Date:** 2026-08-31
+**Date:** 2026-09-02
 
 ## Context
 

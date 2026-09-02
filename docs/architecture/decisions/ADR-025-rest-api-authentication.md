@@ -1,7 +1,7 @@
 # ADR-025: Authenticated REST Writes, Per-Device Ingestion Credentials, Open Reads
 
 **Status:** Accepted
-**Date:** 2026-08-31
+**Date:** 2026-09-02
 
 ## Context
 

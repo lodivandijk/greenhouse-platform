@@ -1,7 +1,7 @@
 # ADR-026: A Sensor Outcome Measures Change Against a Pre-Action Baseline
 
 **Status:** Accepted
-**Date:** 2026-08-31
+**Date:** 2026-09-02
 
 ## Context
 
