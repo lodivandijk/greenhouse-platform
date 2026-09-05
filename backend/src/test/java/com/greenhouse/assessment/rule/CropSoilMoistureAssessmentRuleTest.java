@@ -275,6 +275,35 @@ class CropSoilMoistureAssessmentRuleTest {
         assertThat(finding.cropId()).isEqualTo(8L);
     }
 
+    // The mint incident of 2026-09-05: it wilted visibly at index 43.6 while
+    // its threshold was 30, after six days of steady decline that never crossed
+    // the line. The threshold is now 50 (V31), which would have caught it two
+    // days earlier.
+    @Test
+    void moistureLovingCropAtTheIndexThatWiltedTheMintIsNowFlagged() {
+        Crop mint = crop(10L, "Mint");
+        when(cropRepository.findAll()).thenReturn(List.of(mint));
+        when(profileService.enabledProfilesByCropId())
+                .thenReturn(Map.of(10L, profile(10L, SoilMoistureStrategy.EVENLY_MOIST, 50.0, null)));
+        when(assignmentService.currentAssignmentsByCropId())
+                .thenReturn(Map.of(10L, assignment(10L, "soil-03")));
+
+        // raw 2008 against soil-03's references is index 43.6 - the reading
+        // taken on the morning the wilting was reported.
+        SoilMoistureTwin wilting = new SoilMoistureTwin(
+                "soil-03", 2008, NOW, 10L, FreshnessStatus.CURRENT);
+        when(calibrationService.findCurrentCalibration("soil-03"))
+                .thenReturn(Optional.of(calibration("soil-03")));
+        when(calibrationService.calculateIndex(any(), anyInt()))
+                .thenReturn(new MoistureIndex(43.6, 2008, 77L, 1));
+
+        List<AssessmentFinding> findings = rule.evaluate(twinWithSoil(wilting), NOW);
+
+        assertThat(findings).hasSize(1);
+        assertThat(findings.get(0).code()).isEqualTo(AssessmentCode.CROP_SOIL_MOISTURE_LOW);
+        assertThat(findings.get(0).severity()).isEqualTo(AssessmentSeverity.WARNING);
+    }
+
     @Test
     void dryLeaningCropAboveWetThreshold_raisesHighAsAWarning() {
         Crop sage = crop(11L, "Sage");
