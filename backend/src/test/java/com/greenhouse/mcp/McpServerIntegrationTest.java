@@ -103,7 +103,7 @@ class McpServerIntegrationTest {
                 "record_care_execution", "record_outcome_review", "record_loop_scope_override",
                 // Notification and monitoring-profile tools
                 "get_notification_history", "set_crop_soil_monitoring_mode",
-                "get_crop_monitoring_profile_history"
+                "get_crop_monitoring_profile_history", "set_crop_soil_moisture_band"
         );
 
         JsonNode getCropTool = StreamSupport.stream(tools.spliterator(), false)
@@ -322,9 +322,9 @@ class McpServerIntegrationTest {
         List<String> mustCarryContract = List.of(
                 "record_decision_response", "record_command_response",
                 "record_care_execution", "record_outcome_review", "record_loop_scope_override",
-                // Turning off a crop's soil warnings is not the agent's call to
-                // make on its own; it removes a safety net (ADR-024).
-                "set_crop_soil_monitoring_mode");
+                // Changing what the platform will and will not warn about is
+                // not the agent's call to make on its own (ADR-024, ADR-028).
+                "set_crop_soil_monitoring_mode", "set_crop_soil_moisture_band");
 
         for (String toolName : mustCarryContract) {
             JsonNode tool = StreamSupport.stream(tools.spliterator(), false)

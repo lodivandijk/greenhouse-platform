@@ -80,8 +80,10 @@ class SoilMonitoringModeTest {
 
         profileService.createVersion(
                 crop.getId(), 15.0, 24.0, 3600L, 1800L,
-                SoilMoistureStrategy.DRY_BETWEEN_WATERING, 15.0, 75.0,
-                SoilMonitoringMode.SENSOR, "test", "Initial sensor-monitored profile.");
+                SoilMoistureStrategy.DRY_BETWEEN_WATERING,
+                SoilMoistureBand.LOW.dryThresholdIndex(), SoilMoistureBand.LOW.wetThresholdIndex(),
+                SoilMoistureBand.LOW, SoilMonitoringMode.SENSOR, "test",
+                "Initial sensor-monitored profile.");
     }
 
     @AfterEach

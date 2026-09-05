@@ -45,7 +45,8 @@ docs/architecture/
 │   ├── ADR-024-soil-monitoring-mode.md
 │   ├── ADR-025-rest-api-authentication.md
 │   ├── ADR-026-outcome-measurement-baseline.md
-│   └── ADR-027-idempotency-ownership.md
+│   ├── ADR-027-idempotency-ownership.md
+│   └── ADR-028-soil-moisture-bands.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec

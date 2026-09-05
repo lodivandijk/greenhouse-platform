@@ -55,6 +55,13 @@ public class CropMonitoringProfile {
     @Column(name = "soil_wet_threshold_index")
     private Double soilWetThresholdIndex;
 
+    // The judgement the thresholds came from. The thresholds themselves are
+    // stored too, so a historical assessment still shows the exact numbers that
+    // produced it even after this band's definition changes (ADR-028).
+    @Enumerated(EnumType.STRING)
+    @Column(name = "soil_moisture_band")
+    private SoilMoistureBand soilMoistureBand;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "soil_monitoring_mode")
     private SoilMonitoringMode soilMonitoringMode;
@@ -163,6 +170,14 @@ public class CropMonitoringProfile {
 
     public void setSoilWetThresholdIndex(Double soilWetThresholdIndex) {
         this.soilWetThresholdIndex = soilWetThresholdIndex;
+    }
+
+    public SoilMoistureBand getSoilMoistureBand() {
+        return soilMoistureBand;
+    }
+
+    public void setSoilMoistureBand(SoilMoistureBand soilMoistureBand) {
+        this.soilMoistureBand = soilMoistureBand;
     }
 
     public SoilMonitoringMode getSoilMonitoringMode() {

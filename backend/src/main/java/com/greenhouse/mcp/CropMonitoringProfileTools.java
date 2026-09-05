@@ -6,6 +6,7 @@ import com.greenhouse.common.IdempotencyInProgressException;
 import com.greenhouse.common.IdempotencyService;
 import com.greenhouse.crop.CropMonitoringProfile;
 import com.greenhouse.crop.CropMonitoringProfileService;
+import com.greenhouse.crop.SoilMoistureBand;
 import com.greenhouse.crop.SoilMonitoringMode;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -110,6 +111,76 @@ public class CropMonitoringProfileTools {
     }
 
     @Bean
+    public McpServerFeatures.SyncToolSpecification setCropSoilMoistureBandTool() {
+        McpSchema.Tool tool = McpSchema.Tool.builder()
+                .name("set_crop_soil_moisture_band")
+                .description("Sets how thirsty ONE crop is judged to be, which decides the moisture-index "
+                        + "thresholds at which it is reported as needing water or as sitting too wet. "
+                        + "Bands: "
+                        + "HIGH - wants consistently moist soil, flagged as dry at index 50 or below, no "
+                        + "wet ceiling (basil, mint). "
+                        + "MEDIUM - moderate even moisture, dry at 40 or below, too wet at 85 or above. "
+                        + "LOW - drought-tolerant, prefers drying out between waterings, dry at 30 or "
+                        + "below, too wet at 75 or above (thyme, sage, oregano, tarragon). "
+                        + "Set per crop, not per species: two plants of the same herb in different corners "
+                        + "dry at different rates, and the one by the door is the one that wilts. "
+                        + "Moving a crop UP a band means it is flagged sooner and more often; moving it "
+                        + "DOWN means fewer warnings and a real risk of missing a plant that is drying "
+                        + "out, which is how the mint came to wilt un-flagged. "
+                        + "There is deliberately no way to set a raw threshold number here - a "
+                        + "hand-picked number is one nobody can justify later. If none of the bands fit a "
+                        + "crop, say so to the user rather than forcing the nearest one; a new band can be "
+                        + "added deliberately. "
+                        + "This creates a new monitoring-profile version and preserves the previous one; "
+                        + "the crop's strategy, monitoring mode and temperature settings are carried "
+                        + "forward unchanged. Setting the band it already has changes nothing. "
+                        + "IMPORTANT: only call this after the user has explicitly asked for it in the "
+                        + "current conversation - it changes what the system will and will not warn them "
+                        + "about. "
+                        + "idempotencyKey: a unique string you generate for this specific request (a UUID "
+                        + "is ideal). If the same call is retried with the same key, the original result "
+                        + "is returned rather than the change happening twice.")
+                .inputSchema(mcpJsonMapper, "{\"type\":\"object\",\"properties\":{"
+                        + "\"cropId\":{\"type\":\"integer\",\"description\":\"The crop whose band is changing.\"},"
+                        + "\"band\":{\"type\":\"string\",\"description\":\"HIGH, MEDIUM or LOW.\"},"
+                        + "\"rationale\":{\"type\":\"string\",\"description\":\"Why, in the user's terms. Required - the reason must be recorded, not inferred later from the number.\"},"
+                        + "\"actorId\":{\"type\":\"string\",\"description\":\"Optional: who asked for this.\"},"
+                        + "\"idempotencyKey\":{\"type\":\"string\",\"description\":\"Unique key for this request.\"}"
+                        + "},\"required\":[\"cropId\",\"band\",\"rationale\",\"idempotencyKey\"]}")
+                .build();
+
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(tool)
+                .callHandler((exchange, request) -> McpToolSupport.execute(LOGGER, mcpJsonMapper, request, () -> {
+                    var arguments = request.arguments();
+                    Long cropId = McpToolSupport.requireLong(arguments, "cropId");
+                    SoilMoistureBand band =
+                            McpToolSupport.requireEnum(arguments, "band", SoilMoistureBand.class);
+                    String rationale = McpToolSupport.optionalString(arguments, "rationale");
+                    String actorId = McpToolSupport.optionalString(arguments, "actorId");
+                    String key = McpToolSupport.optionalString(arguments, "idempotencyKey");
+
+                    Optional<Object> replayed = McpIdempotency.guard(
+                            idempotencyService, key, "set_crop_soil_moisture_band", arguments);
+                    if (replayed.isPresent()) {
+                        return replayed.get();
+                    }
+
+                    CropMonitoringProfile profile =
+                            profileService.changeSoilMoistureBand(cropId, band, rationale, actorId);
+                    Object view = describe(profile);
+
+                    try {
+                        idempotencyService.complete(key, mcpJsonMapper.writeValueAsString(view));
+                    } catch (Exception e) {
+                        LOGGER.warn("Could not store idempotent result for key {}: {}", key, e.getMessage());
+                    }
+                    return view;
+                }))
+                .build();
+    }
+
+    @Bean
     public McpServerFeatures.SyncToolSpecification getCropMonitoringProfileHistoryTool() {
         McpSchema.Tool tool = McpSchema.Tool.builder()
                 .name("get_crop_monitoring_profile_history")
@@ -141,6 +212,11 @@ public class CropMonitoringProfileTools {
         described.put("version", profile.getVersion());
         described.put("enabled", profile.getEnabled());
         described.put("soilMonitoringMode", String.valueOf(profile.getSoilMonitoringMode()));
+        described.put("soilMoistureBand", profile.getSoilMoistureBand() == null
+                ? null : profile.getSoilMoistureBand().name());
+        described.put("soilMoistureBandMeaning", profile.getSoilMoistureBand() == null
+                ? "This version predates soil moisture bands; its thresholds were set directly."
+                : profile.getSoilMoistureBand().description());
         described.put("soilMoistureStrategy", String.valueOf(profile.getSoilMoistureStrategy()));
         described.put("soilDryThresholdIndex", profile.getSoilDryThresholdIndex());
         described.put("soilWetThresholdIndex", profile.getSoilWetThresholdIndex());
