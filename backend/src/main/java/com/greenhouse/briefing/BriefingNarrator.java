@@ -162,8 +162,9 @@ public class BriefingNarrator {
         if (input.recentActionDescriptions().isEmpty()) {
             if (input.daysSinceLastAction() != null) {
                 return String.format(Locale.ROOT,
-                        "Nothing has been recorded for it in the last %d days; the last was %d days ago.",
-                        input.windowDays(), input.daysSinceLastAction());
+                        "Nothing has been recorded for it in the last %s; the last was %s ago.",
+                        input.windowDays() == 1 ? "day" : input.windowDays() + " days",
+                        input.daysSinceLastAction() == 1 ? "a day" : input.daysSinceLastAction() + " days");
             }
             return "Nothing has been recorded for it, so there is no history of work on this crop.";
         }

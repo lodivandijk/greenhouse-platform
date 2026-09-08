@@ -363,11 +363,16 @@ public class DailyBriefingService {
         // been heading. The mint declined for six days without any single day
         // looking alarming (ADR-029).
         boolean manual = profile != null && profile.isManuallyMonitored();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> soilForTrend = (Map<String, Object>) entry.get("soil");
+        Double liveIndex = soilForTrend.get("moistureIndex") instanceof Number number
+                ? number.doubleValue() : null;
         CropSoilTrend trend = manual || assignment == null
                 ? CropSoilTrend.unknown()
                 : trendService.trendFor(
                         assignment.getSensorId(),
-                        profile == null ? null : profile.getSoilDryThresholdIndex());
+                        profile == null ? null : profile.getSoilDryThresholdIndex(),
+                        liveIndex);
         entry.put("trend", trendEntry(trend));
 
         entry.put("summary", narrator.cropSummary(narrativeInputFor(
@@ -444,7 +449,7 @@ public class DailyBriefingService {
                 profile == null ? null : profile.getSoilDryThresholdIndex(),
                 profile == null ? null : profile.getSoilWetThresholdIndex(),
                 trend, assessmentDescriptions, actionDescriptions, daysSinceLastAction,
-                (int) properties.window().toDays(), nextRequiredAction);
+                Math.max(1, (int) properties.window().toDays()), nextRequiredAction);
     }
 
     private Map<String, Object> soilEntry(

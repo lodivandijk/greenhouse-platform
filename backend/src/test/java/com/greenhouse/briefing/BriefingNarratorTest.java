@@ -71,6 +71,18 @@ class BriefingNarratorTest {
     }
 
     @Test
+    void aSingleDayWindowIsWordedInTheSingular() {
+        CropNarrativeInput input = new CropNarrativeInput(
+                10L, "Mint", false, 60.0, null, 50.0, null, CropSoilTrend.unknown(),
+                List.of(), List.of(), 3, 1, null);
+
+        String summary = narrator.cropSummary(input);
+
+        assertThat(summary).contains("in the last day");
+        assertThat(summary).doesNotContain("1 days");
+    }
+
+    @Test
     void aQuietGreenhouseSaysSoPlainly() {
         String summary = narrator.greenhouseSummary(
                 0, 0, 0, 21.5, 60.0, "CURRENT", List.of());

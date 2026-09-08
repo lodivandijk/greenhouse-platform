@@ -52,7 +52,7 @@ public class CropSoilTrendService {
         this.clock = clock;
     }
 
-    public CropSoilTrend trendFor(String sensorId, Double dryThresholdIndex) {
+    public CropSoilTrend trendFor(String sensorId, Double dryThresholdIndex, Double currentIndex) {
         if (sensorId == null) {
             return CropSoilTrend.unknown();
         }
@@ -104,10 +104,18 @@ public class CropSoilTrendService {
             direction = CropSoilTrend.Direction.FALLING;
         }
 
-        Double daysUntilDry = projectDaysUntilDry(direction, changePerDay, latest, dryThresholdIndex);
+        // Projected from the CURRENT reading, not from today's mean. The mean is
+        // the right basis for the RATE but the wrong starting point: a partial
+        // day's average can sit well away from where the soil is now, and the
+        // sentence quoting the live index would then contradict the countdown
+        // printed beside it.
+        Double projectFrom = currentIndex != null ? currentIndex : latest;
+        Double daysUntilDry = projectDaysUntilDry(direction, changePerDay, projectFrom, dryThresholdIndex);
 
+        // The SPAN, not the number of daily buckets: seven days of history
+        // spans eight partial calendar days, and the rate is per span-day.
         return new CropSoilTrend(
-                direction, changePerDay, dailyIndex.size(), earliest, latest, daysUntilDry, sharpRise);
+                direction, changePerDay, spanDays, earliest, latest, daysUntilDry, sharpRise);
     }
 
     // Only meaningful while a crop is genuinely drying and has not already
