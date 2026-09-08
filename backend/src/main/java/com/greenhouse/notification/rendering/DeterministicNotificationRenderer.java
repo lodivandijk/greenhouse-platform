@@ -57,6 +57,15 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
                     .append(", replacing an earlier one.\n\n");
         }
 
+        // The summary leads: it is what the reader actually reads, and the
+        // tables below are what it is accountable to.
+        Map<String, Object> summary = map(briefing.get("summary"));
+        if (summary.get("text") != null) {
+            text.append(str(summary.get("text")).trim()).append("\n\n");
+            text.append("(").append(str(summary.get("attribution"))).append(")\n\n");
+            text.append("----------------------------------------------------------------\n\n");
+        }
+
         text.append("GREENHOUSE\n");
         text.append("  Status: ").append(str(greenhouse.get("status")))
                 .append("   Data freshness: ").append(str(greenhouse.get("freshness"))).append("\n");
@@ -108,6 +117,22 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
             } else {
                 // Never let missing data read as "fine".
                 text.append("      Soil:      UNKNOWN - ").append(str(soil.get("reason"))).append("\n");
+            }
+
+            Map<String, Object> trend = map(crop.get("trend"));
+            String direction = str(trend.get("direction"));
+            if (!direction.isBlank() && !"UNKNOWN".equals(direction)) {
+                text.append("      Trend:     ").append(direction.toLowerCase())
+                        .append(", ").append(fmt(trend.get("changePerDayIndexPoints"), ""))
+                        .append(" index points/day over ")
+                        .append(str(trend.get("daysObserved"))).append(" days");
+                if (trend.get("projectedDaysUntilDryThreshold") != null) {
+                    // Flagged as an estimate every time it appears.
+                    text.append("; reaches its dry line in ~")
+                            .append(fmt(trend.get("projectedDaysUntilDryThreshold"), " days"))
+                            .append(" if nothing changes");
+                }
+                text.append("\n");
             }
 
             List<Object> assessments = list(crop.get("assessments"));

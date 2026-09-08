@@ -46,7 +46,8 @@ docs/architecture/
 │   ├── ADR-025-rest-api-authentication.md
 │   ├── ADR-026-outcome-measurement-baseline.md
 │   ├── ADR-027-idempotency-ownership.md
-│   └── ADR-028-soil-moisture-bands.md
+│   ├── ADR-028-soil-moisture-bands.md
+│   └── ADR-029-briefing-trends-and-composed-summary.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec

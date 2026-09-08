@@ -29,6 +29,24 @@ public interface SoilMoistureReadingRepository extends JpaRepository<SoilMoistur
     List<SoilMoistureReadingEntity> findAllBySensorIdAndReceivedAtBetweenOrderByReceivedAtAsc(
             String sensorId, Instant from, Instant to);
 
+    // Daily means rather than raw rows: a week of one-minute samples is ~10,000
+    // readings per probe, and the briefing only needs the shape of the curve.
+    // Averaging also stops a single noisy sample from inventing a trend.
+    @Query(value = "SELECT date_trunc('day', received_at) AS day, "
+            + "AVG(raw_adc) AS avg_raw, COUNT(*) AS samples "
+            + "FROM soil_moisture_reading "
+            + "WHERE sensor_id = :sensorId AND received_at >= :since "
+            + "GROUP BY 1 ORDER BY 1", nativeQuery = true)
+    List<DailyRawAverage> findDailyAverageRaw(String sensorId, Instant since);
+
+    interface DailyRawAverage {
+        Instant getDay();
+
+        Double getAvgRaw();
+
+        Long getSamples();
+    }
+
     // One query for every sensor's latest reading, rather than N per-sensor
     // lookups - the twin is assembled on every scheduler tick and every state
     // request, so this stays a single round trip as sensor count grows.

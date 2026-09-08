@@ -1,5 +1,7 @@
 package com.greenhouse.briefing;
 
+import com.greenhouse.briefing.summary.BriefingSummary;
+import com.greenhouse.briefing.summary.BriefingSummaryService;
 import com.greenhouse.assessment.AssessmentLifecycleEvent;
 import com.greenhouse.assessment.AssessmentLifecycleEventRepository;
 import com.greenhouse.assessment.AssessmentMapper;
@@ -31,6 +33,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
@@ -67,6 +70,10 @@ public class DailyBriefingService {
     private final AssessmentLifecycleEventRepository lifecycleEventRepository;
     private final AssessmentMapper assessmentMapper;
     private final CareLoopQueryService careLoopQueryService;
+    private final CropSoilTrendService trendService;
+    private final BriefingNarrator narrator;
+    private final BriefingSummaryService summaryService;
+    private final com.greenhouse.action.ActionService actionService;
     private final Clock clock;
 
     public DailyBriefingService(
@@ -84,6 +91,10 @@ public class DailyBriefingService {
             AssessmentLifecycleEventRepository lifecycleEventRepository,
             AssessmentMapper assessmentMapper,
             CareLoopQueryService careLoopQueryService,
+            CropSoilTrendService trendService,
+            BriefingNarrator narrator,
+            BriefingSummaryService summaryService,
+            com.greenhouse.action.ActionService actionService,
             Clock clock
     ) {
         this.snapshotRepository = snapshotRepository;
@@ -100,6 +111,10 @@ public class DailyBriefingService {
         this.lifecycleEventRepository = lifecycleEventRepository;
         this.assessmentMapper = assessmentMapper;
         this.careLoopQueryService = careLoopQueryService;
+        this.trendService = trendService;
+        this.narrator = narrator;
+        this.summaryService = summaryService;
+        this.actionService = actionService;
         this.clock = clock;
     }
 
@@ -190,10 +205,84 @@ public class DailyBriefingService {
         briefing.put("recentOutcomes", careLoopQueryService.recentOutcomes(windowStart).stream()
                 .map(this::outcomeEntry).toList());
         briefing.put("dataQualityGaps", dataQualityGaps(twin));
-        briefing.put("note", "Structured evidence only. Moisture index is a 0-100 position between each "
-                + "probe's own dry and wet references, not a volumetric water percentage.");
+        briefing.put("note", "Moisture index is a 0-100 position between each probe's own dry and wet "
+                + "references, not a volumetric water percentage.");
+
+        // Composed last, from the structured briefing that precedes it, so the
+        // prose can never describe something the evidence does not contain.
+        briefing.put("summary", summarySection(briefing, twin, windowStart));
 
         return briefing;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> summarySection(
+            Map<String, Object> briefing, GreenhouseTwin twin, Instant windowStart
+    ) {
+        List<Map<String, Object>> crops = (List<Map<String, Object>>) briefing.get("crops");
+        List<Map<String, Object>> loops = (List<Map<String, Object>>) briefing.get("openCareLoops");
+        List<Map<String, Object>> gaps = (List<Map<String, Object>>) briefing.get("dataQualityGaps");
+
+        List<String> cropLines = new ArrayList<>();
+        List<String> attentionNames = new ArrayList<>();
+        List<String> warningLines = new ArrayList<>();
+
+        for (Map<String, Object> crop : crops) {
+            cropLines.add((String) crop.get("summary"));
+            List<Map<String, Object>> assessments =
+                    (List<Map<String, Object>>) crop.getOrDefault("assessments", List.of());
+            if (!assessments.isEmpty()) {
+                attentionNames.add(String.valueOf(crop.get("species")));
+                assessments.forEach(assessment -> warningLines.add(
+                        crop.get("species") + " (crop " + crop.get("cropId") + "): "
+                                + assessment.get("code") + " - " + assessment.get("message")));
+            }
+        }
+
+        List<String> loopLines = loops.stream()
+                .map(loop -> "Loop " + loop.get("careLoopId") + " on " + loop.get("subjectType") + " "
+                        + loop.get("subjectId") + " - " + loop.get("condition")
+                        + ", status " + loop.get("status")
+                        + ", next: " + loop.get("nextRequiredAction"))
+                .toList();
+
+        List<String> gapLines = gaps.stream()
+                .map(gap -> gap.entrySet().stream()
+                        .map(entry -> entry.getKey() + "=" + entry.getValue())
+                        .collect(java.util.stream.Collectors.joining(", ")))
+                .toList();
+
+        // greenhouseConditions() is already flat - the primary zone's readings
+        // are top-level keys on it, not nested.
+        Map<String, Object> conditions = greenhouseConditions(twin);
+        Double temperature = asDouble(conditions.get("temperatureCelsius"));
+        Double humidity = asDouble(conditions.get("humidityPercent"));
+        String freshness = String.valueOf(conditions.getOrDefault("freshness", "UNKNOWN"));
+
+        String greenhouseLine = narrator.greenhouseSummary(
+                attentionNames.size(), loopLines.size(), gapLines.size(),
+                temperature, humidity, freshness, attentionNames);
+
+        String factSheet = summaryService.buildFactSheet(
+                greenhouseLine, cropLines, warningLines, loopLines, gapLines);
+
+        BriefingSummary summary = summaryService.summarise(
+                greenhouseLine + " " + String.join(" ", cropLines), cropLines, factSheet);
+
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("text", summary.greenhouseSummary());
+        section.put("source", summary.source().name());
+        section.put("model", summary.model());
+        section.put("attribution", summary.attribution());
+        section.put("fallbackReason", summary.fallbackReason());
+        // The exact input the prose was written from, so any sentence in it can
+        // be checked against what was actually known.
+        section.put("factSheet", factSheet);
+        return section;
+    }
+
+    private static Double asDouble(Object value) {
+        return value instanceof Number number ? number.doubleValue() : null;
     }
 
     private Map<String, Object> greenhouseConditions(GreenhouseTwin twin) {
@@ -270,7 +359,92 @@ public class DailyBriefingService {
         entry.put("latestHarvest", harvestService.getHarvestHistory(crop.getId()).stream()
                 .reduce((first, second) -> second).orElse(null));
 
+        // The thing a current-state briefing could not show: where this crop has
+        // been heading. The mint declined for six days without any single day
+        // looking alarming (ADR-029).
+        boolean manual = profile != null && profile.isManuallyMonitored();
+        CropSoilTrend trend = manual || assignment == null
+                ? CropSoilTrend.unknown()
+                : trendService.trendFor(
+                        assignment.getSensorId(),
+                        profile == null ? null : profile.getSoilDryThresholdIndex());
+        entry.put("trend", trendEntry(trend));
+
+        entry.put("summary", narrator.cropSummary(narrativeInputFor(
+                crop, profile, entry, trend, manual, windowStart)));
+
         return entry;
+    }
+
+    private Map<String, Object> trendEntry(CropSoilTrend trend) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("direction", trend.direction().name());
+        if (!trend.isKnown()) {
+            entry.put("note", "Not enough history yet to describe a trend.");
+            return entry;
+        }
+        entry.put("changePerDayIndexPoints", round(trend.changePerDay()));
+        entry.put("daysObserved", trend.daysObserved());
+        entry.put("earliestIndex", round(trend.earliestIndex()));
+        entry.put("latestIndex", round(trend.latestIndex()));
+        entry.put("sharpRiseObserved", trend.sharpRiseObserved());
+        if (trend.daysUntilDryThreshold() != null) {
+            entry.put("projectedDaysUntilDryThreshold", round(trend.daysUntilDryThreshold()));
+            entry.put("projectionCaveat", CropSoilTrend.projectionCaveat());
+        }
+        return entry;
+    }
+
+    private static Double round(Double value) {
+        return value == null ? null : Math.round(value * 10.0) / 10.0;
+    }
+
+    @SuppressWarnings("unchecked")
+    private CropNarrativeInput narrativeInputFor(
+            Crop crop, CropMonitoringProfile profile, Map<String, Object> entry,
+            CropSoilTrend trend, boolean manual, Instant windowStart
+    ) {
+        Map<String, Object> soil = (Map<String, Object>) entry.get("soil");
+        Double currentIndex = soil.get("moistureIndex") instanceof Number number
+                ? number.doubleValue() : null;
+        String unavailableReason = currentIndex == null
+                ? String.valueOf(soil.getOrDefault("reason", "no reading is available")).toLowerCase()
+                        .replace('_', ' ')
+                : null;
+
+        List<Map<String, Object>> assessments =
+                (List<Map<String, Object>>) entry.getOrDefault("assessments", List.of());
+        List<String> assessmentDescriptions = assessments.stream()
+                .map(assessment -> String.valueOf(assessment.get("message")))
+                .toList();
+
+        List<com.greenhouse.action.ActionResponse> recentActions =
+                actionService.listActions(crop.getId(), null, windowStart);
+        List<String> actionDescriptions = recentActions.stream()
+                .map(action -> action.type() + (action.quantity() == null
+                        ? "" : " " + action.quantity() + " " + action.unit()))
+                .toList();
+
+        Integer daysSinceLastAction = null;
+        if (recentActions.isEmpty()) {
+            daysSinceLastAction = actionService.listActions(crop.getId(), 1, null).stream()
+                    .findFirst()
+                    .map(action -> (int) Duration.between(action.performedAt(), clock.instant()).toDays())
+                    .orElse(null);
+        }
+
+        String nextRequiredAction = careLoopQueryService.openLoops(null, null).stream()
+                .filter(loop -> String.valueOf(crop.getId()).equals(loop.primarySubjectId()))
+                .findFirst()
+                .map(OpenCareLoopSummary::nextRequiredAction)
+                .orElse(null);
+
+        return new CropNarrativeInput(
+                crop.getId(), crop.getSpecies(), manual, currentIndex, unavailableReason,
+                profile == null ? null : profile.getSoilDryThresholdIndex(),
+                profile == null ? null : profile.getSoilWetThresholdIndex(),
+                trend, assessmentDescriptions, actionDescriptions, daysSinceLastAction,
+                (int) properties.window().toDays(), nextRequiredAction);
     }
 
     private Map<String, Object> soilEntry(

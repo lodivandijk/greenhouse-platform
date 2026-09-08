@@ -78,6 +78,14 @@ greenhouse:
     zone: Europe/London
     generate-at: "06:00"
     window: PT24H
+    # The briefing's opening paragraphs. Deterministic text is always computed
+    # first and is used whenever the model is off or unreachable, so a briefing
+    # is produced on a morning when the API is down (ADR-029).
+    summary:
+      llm-enabled: ${GREENHOUSE_BRIEFING_LLM_ENABLED:false}
+      model: ${GREENHOUSE_BRIEFING_MODEL:claude-opus-5}
+      max-tokens: 2000
+      timeout: PT60S
 
   # Outbound notification. Email is OFF by default: the platform runs perfectly
   # well without SMTP configured, and nothing is ever sent until it is switched
