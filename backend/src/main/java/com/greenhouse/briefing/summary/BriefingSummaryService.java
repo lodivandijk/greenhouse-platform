@@ -7,15 +7,13 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-// Produces the briefing's prose, preferring a language model and falling back
-// to the deterministic text.
+// Produces the briefing's prose, or says plainly that it could not.
 //
-// The fallback is not a nicety. A briefing is the thing that tells someone a
-// plant is dying; it must be produced on a morning when the API is down, the
-// key has expired, or the account is out of credit. So the deterministic
-// sentences are always computed first, the model is offered the same facts, and
-// any failure at all leaves the deterministic version in place with the reason
-// recorded (ADR-029).
+// A failure costs an opening paragraph, not the briefing: the greenhouse
+// conditions, per-crop trends, warnings, open loops and data gaps are all
+// computed before this runs and are emitted whatever happens here. That is why
+// the deterministic writer could be removed rather than kept as a second path
+// to maintain - it was only ever protecting the paragraph (ADR-030).
 @Service
 public class BriefingSummaryService {
 
@@ -39,37 +37,35 @@ public class BriefingSummaryService {
     @jakarta.annotation.PostConstruct
     void announceConfiguredSource() {
         if (composerProvider.getIfAvailable() == null) {
-            LOGGER.info(
-                    "Briefing summaries will be written by the platform itself. To use a language model, "
-                            + "set greenhouse.daily-briefing.summary.llm-enabled=true and provide "
-                            + "ANTHROPIC_API_KEY.");
+            LOGGER.warn(
+                    "No briefing summary writer is configured - briefings will carry their readings but "
+                            + "no opening paragraph. Set greenhouse.daily-briefing.summary.llm-enabled=true "
+                            + "and provide ANTHROPIC_API_KEY.");
         } else {
             LOGGER.info("Briefing summaries will be written by {}.", properties.model());
         }
     }
 
-    public BriefingSummary summarise(String deterministicSummary, List<String> cropSummaries, String factSheet) {
-        String deterministic = deterministicSummary;
-
+    public BriefingSummary summarise(String factSheet) {
         ClaudeSummaryComposer composer = composerProvider.getIfAvailable();
         if (composer == null) {
-            return BriefingSummary.deterministic(deterministic);
+            return BriefingSummary.unavailable("no summary writer is configured.");
         }
 
         try {
-            return BriefingSummary.fromModel(composer.compose(factSheet), properties.model());
+            return BriefingSummary.written(composer.compose(factSheet), properties.model());
         } catch (Exception e) {
             // Every failure mode lands here on purpose - no key, no credit, no
             // network, a refusal, a timeout. None of them may stop the briefing.
-            LOGGER.warn("Briefing summary fell back to deterministic text: {}", e.toString());
-            return BriefingSummary.deterministicAfterFailure(
-                    deterministic, e.getClass().getSimpleName() + ": " + e.getMessage());
+            LOGGER.warn("Briefing summary could not be written: {}", e.toString());
+            return BriefingSummary.unavailable(
+                    "the summary could not be written (" + e.getClass().getSimpleName() + ").");
         }
     }
 
-    // Everything the model is allowed to know, in the order a person would want
-    // it. Built from the same snapshot the structured briefing is built from,
-    // so any sentence in the summary can be traced to a line here.
+    // The model's only permitted source, built from the structured briefing
+    // rather than from sentences. Feeding it prose to rewrite would put a second
+    // author between the data and the reader.
     public String buildFactSheet(
             String greenhouseLine,
             List<String> cropLines,
@@ -85,30 +81,26 @@ public class BriefingSummaryService {
         if (cropLines.isEmpty()) {
             sheet.append("No crops are being tracked.\n");
         } else {
-            cropLines.forEach(line -> sheet.append("- ").append(line).append("\n"));
+            cropLines.forEach(line -> sheet.append(line).append("\n"));
         }
 
         sheet.append("\nACTIVE WARNINGS\n");
-        if (warningLines.isEmpty()) {
-            sheet.append("None.\n");
-        } else {
-            warningLines.forEach(line -> sheet.append("- ").append(line).append("\n"));
-        }
+        appendOrNone(sheet, warningLines, "None.");
 
         sheet.append("\nOPEN CARE LOOPS (things waiting on the reader)\n");
-        if (loopLines.isEmpty()) {
-            sheet.append("None.\n");
-        } else {
-            loopLines.forEach(line -> sheet.append("- ").append(line).append("\n"));
-        }
+        appendOrNone(sheet, loopLines, "None.");
 
         sheet.append("\nDATA GAPS (measurements that could not be taken)\n");
-        if (gapLines.isEmpty()) {
-            sheet.append("None - every configured sensor reported.\n");
-        } else {
-            gapLines.forEach(line -> sheet.append("- ").append(line).append("\n"));
-        }
+        appendOrNone(sheet, gapLines, "None - every configured sensor reported.");
 
         return sheet.toString();
+    }
+
+    private static void appendOrNone(StringBuilder sheet, List<String> lines, String noneText) {
+        if (lines.isEmpty()) {
+            sheet.append(noneText).append("\n");
+        } else {
+            lines.forEach(line -> sheet.append("- ").append(line).append("\n"));
+        }
     }
 }

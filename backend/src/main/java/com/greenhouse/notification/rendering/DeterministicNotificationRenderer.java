@@ -64,6 +64,12 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
             text.append(str(summary.get("text")).trim()).append("\n\n");
             text.append("(").append(str(summary.get("attribution"))).append(")\n\n");
             text.append("----------------------------------------------------------------\n\n");
+        } else if (summary.get("unavailableReason") != null) {
+            // Stated, not skipped: a briefing that quietly starts at the tables
+            // looks the same as one that never had a summary to give.
+            text.append("No summary this morning - ").append(str(summary.get("unavailableReason")))
+                    .append("\n").append("The readings below are unaffected.\n\n");
+            text.append("----------------------------------------------------------------\n\n");
         }
 
         text.append("GREENHOUSE\n");
