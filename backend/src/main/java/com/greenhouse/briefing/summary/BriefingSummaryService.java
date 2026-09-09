@@ -32,6 +32,22 @@ public class BriefingSummaryService {
         this.properties = properties;
     }
 
+    // Announced at startup because the failure this catches is silent: a
+    // property bound at the wrong prefix leaves the feature switched on in the
+    // environment and off in the application, with nothing in the logs and a
+    // briefing that looks fine.
+    @jakarta.annotation.PostConstruct
+    void announceConfiguredSource() {
+        if (composerProvider.getIfAvailable() == null) {
+            LOGGER.info(
+                    "Briefing summaries will be written by the platform itself. To use a language model, "
+                            + "set greenhouse.daily-briefing.summary.llm-enabled=true and provide "
+                            + "ANTHROPIC_API_KEY.");
+        } else {
+            LOGGER.info("Briefing summaries will be written by {}.", properties.model());
+        }
+    }
+
     public BriefingSummary summarise(String deterministicSummary, List<String> cropSummaries, String factSheet) {
         String deterministic = deterministicSummary;
 

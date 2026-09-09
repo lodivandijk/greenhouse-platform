@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 // created in every deployment and fails on a missing AnthropicClient, taking
 // the whole application down over an optional feature.
 @ConditionalOnProperty(
-        prefix = "greenhouse.briefing.summary",
+        prefix = "greenhouse.daily-briefing.summary",
         name = "llm-enabled",
         havingValue = "true"
 )

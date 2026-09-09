@@ -10,7 +10,7 @@ import java.time.Duration;
 // Disabled by default and keyless: the briefing must be producible by a
 // deployment that has never heard of the Anthropic API (ADR-029).
 @Validated
-@ConfigurationProperties(prefix = "greenhouse.briefing.summary")
+@ConfigurationProperties(prefix = "greenhouse.daily-briefing.summary")
 public record BriefingSummaryProperties(
         boolean llmEnabled,
         String model,

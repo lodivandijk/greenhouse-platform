@@ -12,7 +12,7 @@ import java.time.Duration;
 // with no API key starts normally and simply gets the deterministic briefing.
 @Configuration
 @ConditionalOnProperty(
-        prefix = "greenhouse.briefing.summary",
+        prefix = "greenhouse.daily-briefing.summary",
         name = "llm-enabled",
         havingValue = "true"
 )
