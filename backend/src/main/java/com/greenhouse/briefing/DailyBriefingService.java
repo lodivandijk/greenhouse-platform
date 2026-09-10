@@ -269,6 +269,7 @@ public class DailyBriefingService {
 
         Map<String, Object> section = new LinkedHashMap<>();
         section.put("text", summary.text());
+        section.put("headline", summary.headline());
         section.put("model", summary.model());
         section.put("attribution", summary.attribution());
         section.put("unavailableReason", summary.unavailableReason());

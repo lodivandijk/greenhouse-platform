@@ -22,6 +22,28 @@ public class RecordingDeliveryPort implements NotificationDeliveryPort {
     }
 
     @Override
+    public String recipient() {
+        return "test-recipient@example.invalid";
+    }
+
+    @Override
+    public com.greenhouse.notification.rendering.NotificationRenderer.ChannelFormat format() {
+        return com.greenhouse.notification.rendering.NotificationRenderer.ChannelFormat.EMAIL;
+    }
+
+    @Override
+    public boolean accepts(com.greenhouse.notification.NotificationIntentType intentType) {
+        return acceptedTypes == null || acceptedTypes.contains(intentType);
+    }
+
+    // Null means "everything", which is what most tests want.
+    private java.util.Set<com.greenhouse.notification.NotificationIntentType> acceptedTypes;
+
+    public void acceptOnly(com.greenhouse.notification.NotificationIntentType... types) {
+        this.acceptedTypes = java.util.Set.of(types);
+    }
+
+    @Override
     public DeliveryResult deliver(DeliveryRequest request) {
         requests.add(request);
         return behaviour.apply(request);
@@ -37,6 +59,7 @@ public class RecordingDeliveryPort implements NotificationDeliveryPort {
 
     public void reset() {
         requests.clear();
+        acceptedTypes = null;
         behaviour = request -> DeliveryResult.success("fake-" + request.notificationIntentId());
     }
 }

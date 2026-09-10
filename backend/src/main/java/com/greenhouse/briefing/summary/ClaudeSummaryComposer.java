@@ -66,6 +66,18 @@ public class ClaudeSummaryComposer {
             emoji. Do not restate every number - the reader has the table below. Prefer "the mint has been
             drying for six days" over a list of daily values. Do not tell the reader to consult the data
             below; they can see it.
+
+            FORMAT. Reply in exactly this shape:
+
+            HEADLINE: <one or two sentences, at most 200 characters>
+
+            <the full summary paragraphs>
+
+            The headline goes to a phone as a push notification, read in a glance on a lock screen with no
+            tables underneath it and no way to see more without opening the email. Put the single thing
+            most worth knowing in it. If nothing needs a decision, say that plainly - a quiet morning is
+            useful information and should not be dressed up. The same rules above apply to it, especially
+            never implying that something unmeasured is fine.
             """;
 
     private final AnthropicClient client;
@@ -76,7 +88,13 @@ public class ClaudeSummaryComposer {
         this.properties = properties;
     }
 
-    public String compose(String factSheet) {
+    // The summary and the phone headline, written together in one call. A
+    // separate call would cost twice and could disagree with itself; a
+    // truncation of the long form would cut a sentence in half (ADR-031).
+    public record ComposedSummary(String headline, String text) {
+    }
+
+    public ComposedSummary compose(String factSheet) {
         MessageCreateParams params = MessageCreateParams.builder()
                 .model(properties.model())
                 .maxTokens(properties.maxTokens())
@@ -113,6 +131,29 @@ public class ClaudeSummaryComposer {
                 response.usage().inputTokens(),
                 response.usage().outputTokens());
 
-        return text;
+        return split(text);
+    }
+
+    // Splitting the reply is parsing, not authorship. If the marker is missing
+    // the whole reply is the summary and the push falls back to its first
+    // sentence - the renderer handles that, so a model that ignores the format
+    // costs a slightly clumsy headline rather than a failed briefing.
+    private static ComposedSummary split(String reply) {
+        String marker = "HEADLINE:";
+        int start = reply.indexOf(marker);
+        if (start < 0) {
+            LOGGER.warn("The summary came back without a HEADLINE line; the push will use its first sentence.");
+            return new ComposedSummary(null, reply);
+        }
+
+        int lineEnd = reply.indexOf('\n', start);
+        if (lineEnd < 0) {
+            // A headline and nothing else is not a briefing.
+            return new ComposedSummary(reply.substring(start + marker.length()).trim(), reply);
+        }
+
+        String headline = reply.substring(start + marker.length(), lineEnd).trim();
+        String body = reply.substring(lineEnd).trim();
+        return new ComposedSummary(headline.isBlank() ? null : headline, body);
     }
 }

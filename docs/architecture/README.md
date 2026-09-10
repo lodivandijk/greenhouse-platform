@@ -48,7 +48,8 @@ docs/architecture/
 │   ├── ADR-027-idempotency-ownership.md
 │   ├── ADR-028-soil-moisture-bands.md
 │   ├── ADR-029-briefing-trends-and-composed-summary.md
-│   └── ADR-030-one-briefing-summary-writer.md
+│   ├── ADR-030-one-briefing-summary-writer.md
+│   └── ADR-031-push-notifications-via-ntfy.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec

@@ -18,6 +18,10 @@ public record NotificationProperties(
         Duration reminderInterval,
         boolean recoveryEmailEnabled,
         int maxDeliveryAttempts,
+        // Used to build the deterministic Message-ID. That is an idempotency
+        // key that happens to be carried in an email header, not an email
+        // setting - a push channel needs one too (ADR-031).
+        String messageIdDomain,
         Channels channels
 ) {
 
@@ -52,6 +56,9 @@ public record NotificationProperties(
         if (channels == null) {
             throw new IllegalArgumentException("greenhouse.notifications.channels is required");
         }
+        if (messageIdDomain == null || messageIdDomain.isBlank()) {
+            messageIdDomain = "greenhouse.local";
+        }
     }
 
     public List<Duration> retryDelays() {
@@ -68,11 +75,51 @@ public record NotificationProperties(
         return index < delays.size() ? delays.get(index) : delays.get(delays.size() - 1);
     }
 
-    public record Channels(Email email) {
+    public record Channels(Email email, Ntfy ntfy) {
         public Channels {
             if (email == null) {
                 throw new IllegalArgumentException("greenhouse.notifications.channels.email is required");
             }
+            if (ntfy == null) {
+                ntfy = new Ntfy(false, null, null, null, null);
+            }
+        }
+    }
+
+    public record Ntfy(
+            boolean enabled,
+            String baseUrl,
+            String topic,
+            // Optional. Only needed for a protected topic or a self-hosted
+            // server; ntfy.sh's public topics take none.
+            String token,
+            // Which kinds of message this phone wants. Empty means all of them.
+            java.util.List<NotificationIntentType> intentTypes
+    ) {
+        public Ntfy {
+            if (baseUrl == null || baseUrl.isBlank()) {
+                baseUrl = "https://ntfy.sh";
+            }
+            // Trailing slashes turn into a double slash in the published URL,
+            // which ntfy answers with a 404 rather than a useful error.
+            while (baseUrl.endsWith("/")) {
+                baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+            }
+            intentTypes = intentTypes == null ? java.util.List.of() : java.util.List.copyOf(intentTypes);
+
+            if (enabled && (topic == null || topic.isBlank())) {
+                throw new IllegalArgumentException(
+                        "greenhouse.notifications.channels.ntfy.topic is required when ntfy is enabled - "
+                                + "without it there is nowhere to publish.");
+            }
+        }
+
+        public boolean carries(NotificationIntentType intentType) {
+            return intentTypes.isEmpty() || intentTypes.contains(intentType);
+        }
+
+        public String publishUrl() {
+            return baseUrl + "/" + topic;
         }
     }
 

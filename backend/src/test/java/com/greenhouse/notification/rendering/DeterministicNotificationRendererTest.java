@@ -20,6 +20,15 @@ class DeterministicNotificationRendererTest {
 
     private final DeterministicNotificationRenderer renderer = new DeterministicNotificationRenderer();
 
+    private static final NotificationRenderer.ChannelFormat EMAIL_FORMAT =
+            NotificationRenderer.ChannelFormat.EMAIL;
+
+    // Keeps the existing assertions reading as they did before the contract
+    // gained a format argument.
+    private RenderedNotification renderEmail(NotificationIntent intent) {
+        return renderer.render(intent, EMAIL_FORMAT);
+    }
+
     private NotificationIntent careLoopIntent(Map<String, Object> extraPayload) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("careLoopId", 42L);
@@ -47,7 +56,7 @@ class DeterministicNotificationRendererTest {
                 "status", "AWAITING_DECISION_APPROVAL",
                 "pendingDecisionId", 7L));
 
-        String text = renderer.render(intent).plainTextBody();
+        String text = renderer.render(intent, EMAIL_FORMAT).plainTextBody();
 
         assertThat(text).contains("waiting for your approval");
         assertThat(text).contains("NOT");
@@ -63,21 +72,21 @@ class DeterministicNotificationRendererTest {
                 "status", "AWAITING_EXECUTION",
                 "pendingCommandId", 11L));
 
-        String text = renderer.render(intent).plainTextBody();
+        String text = renderer.render(intent, EMAIL_FORMAT).plainTextBody();
 
         assertThat(text).contains("waiting for you to carry it out");
     }
 
     @Test
     void everyCareLoopMessageCarriesTheMoistureCaveat() {
-        String text = renderer.render(careLoopIntent(Map.of())).plainTextBody();
+        String text = renderEmail(careLoopIntent(Map.of())).plainTextBody();
 
         assertThat(text).contains("not volumetric water content");
     }
 
     @Test
     void theHtmlBodyLoadsNothingFromTheNetworkAndRunsNoScript() {
-        RenderedNotification rendered = renderer.render(careLoopIntent(Map.of()));
+        RenderedNotification rendered = renderEmail(careLoopIntent(Map.of()));
 
         String html = rendered.htmlBody().toLowerCase();
         // A remote image is a tracking pixel by another name, and a mail client
@@ -92,8 +101,8 @@ class DeterministicNotificationRendererTest {
     void theSameIntentAlwaysRendersIdentically() {
         NotificationIntent intent = careLoopIntent(Map.of());
 
-        RenderedNotification first = renderer.render(intent);
-        RenderedNotification second = renderer.render(intent);
+        RenderedNotification first = renderer.render(intent, EMAIL_FORMAT);
+        RenderedNotification second = renderer.render(intent, EMAIL_FORMAT);
 
         assertThat(second).isEqualTo(first);
     }
@@ -103,8 +112,8 @@ class DeterministicNotificationRendererTest {
         NotificationIntent original = briefingIntent(false);
         NotificationIntent update = briefingIntent(true);
 
-        assertThat(renderer.render(original).subject()).contains("Daily briefing");
-        assertThat(renderer.render(update).subject()).contains("Updated daily briefing");
+        assertThat(renderer.render(original, EMAIL_FORMAT).subject()).contains("Daily briefing");
+        assertThat(renderer.render(update, EMAIL_FORMAT).subject()).contains("Updated daily briefing");
     }
 
     private NotificationIntent briefingIntent(boolean isUpdate) {

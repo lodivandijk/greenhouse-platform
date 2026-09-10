@@ -1,6 +1,8 @@
 package com.greenhouse.notification.email;
 
+import com.greenhouse.notification.NotificationIntentType;
 import com.greenhouse.notification.NotificationProperties;
+import com.greenhouse.notification.rendering.NotificationRenderer;
 import com.greenhouse.notification.delivery.DeliveryRequest;
 import com.greenhouse.notification.delivery.DeliveryResult;
 import com.greenhouse.notification.delivery.NotificationDeliveryPort;
@@ -50,6 +52,22 @@ public class SmtpEmailNotificationAdapter implements NotificationDeliveryPort {
     @Override
     public String channel() {
         return "EMAIL";
+    }
+
+    @Override
+    public String recipient() {
+        return properties.channels().email().to();
+    }
+
+    @Override
+    public NotificationRenderer.ChannelFormat format() {
+        return NotificationRenderer.ChannelFormat.EMAIL;
+    }
+
+    @Override
+    public boolean accepts(NotificationIntentType intentType) {
+        // The inbox is the complete record; everything goes there.
+        return true;
     }
 
     @Override

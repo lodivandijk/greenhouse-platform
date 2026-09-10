@@ -29,12 +29,14 @@ class BriefingSummaryTest {
     @Test
     void aWrittenSummaryIsAttributedToTheModel() {
         ClaudeSummaryComposer composer = mock(ClaudeSummaryComposer.class);
-        when(composer.compose(anyString())).thenReturn("The thyme is the one worth a look.");
+        when(composer.compose(anyString())).thenReturn(new ClaudeSummaryComposer.ComposedSummary(
+                "Thyme needs a look.", "The thyme is the one worth a look."));
 
         BriefingSummary summary = serviceWith(composer).summarise("fact sheet");
 
         assertThat(summary.isPresent()).isTrue();
         assertThat(summary.text()).contains("thyme");
+        assertThat(summary.headline()).isEqualTo("Thyme needs a look.");
         assertThat(summary.model()).isEqualTo("claude-opus-5");
         assertThat(summary.attribution()).contains("claude-opus-5").contains("remain the record");
         assertThat(summary.unavailableReason()).isNull();

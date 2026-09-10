@@ -72,6 +72,9 @@ public class NotificationDeliveryService {
 
         for (NotificationIntent intent : intentRepository.findAllByNotBeforeLessThanEqualOrderByCreatedAtAsc(now)) {
             for (NotificationDeliveryPort port : deliveryPorts) {
+                if (!port.accepts(intent.getIntentType())) {
+                    continue;
+                }
                 try {
                     if (deliverOne(intent, port, now)) {
                         delivered++;
@@ -140,8 +143,8 @@ public class NotificationDeliveryService {
             return false;
         }
 
-        RenderedNotification rendered = renderer.render(intent);
-        String recipient = recipientFor(port);
+        RenderedNotification rendered = renderer.render(intent, port.format());
+        String recipient = port.recipient();
         DeliveryRequest request = new DeliveryRequest(
                 intent.getId(), intent.getIntentType(), intent.getPriority(), recipient,
                 rendered.subject(), rendered.plainTextBody(), rendered.htmlBody(),
@@ -251,24 +254,19 @@ public class NotificationDeliveryService {
             NotificationDeliveryEventType type, Instant at, String code, String message
     ) {
         NotificationDeliveryEvent terminal =
-                event(intent, port, attemptNumber, type, at, recipientFor(port));
+                event(intent, port, attemptNumber, type, at, port.recipient());
         terminal.setErrorCode(code);
         terminal.setErrorMessage(message);
         return terminal;
     }
 
-    private String recipientFor(NotificationDeliveryPort port) {
-        if ("EMAIL".equals(port.channel())) {
-            return properties.channels().email().to();
-        }
-        return port.channel();
-    }
+
 
     // Stable across every retry of the same intent on the same channel.
     private String deterministicMessageId(NotificationIntent intent, NotificationDeliveryPort port) {
         return "<greenhouse-notification-" + intent.getId() + "-"
                 + port.channel().toLowerCase() + "@"
-                + properties.channels().email().messageIdDomain() + ">";
+                + properties.messageIdDomain() + ">";
     }
 
     // Delivery errors can echo back connection strings; keep them short and

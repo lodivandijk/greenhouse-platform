@@ -10,17 +10,20 @@ package com.greenhouse.briefing.summary;
 public record BriefingSummary(
         // Null when no summary could be produced.
         String text,
+        // The phone-sized version, written in the same call. Null when there is
+        // no summary, or when the model did not supply one.
+        String headline,
         String model,
         // Null when a summary was produced; otherwise why there is none.
         String unavailableReason
 ) {
 
-    public static BriefingSummary written(String text, String model) {
-        return new BriefingSummary(text, model, null);
+    public static BriefingSummary written(String text, String headline, String model) {
+        return new BriefingSummary(text, headline, model, null);
     }
 
     public static BriefingSummary unavailable(String reason) {
-        return new BriefingSummary(null, null, reason);
+        return new BriefingSummary(null, null, null, reason);
     }
 
     public boolean isPresent() {

@@ -213,6 +213,32 @@ class NotificationDeliveryTest {
                 .contains(NotificationDeliveryEventType.FAILED);
     }
 
+    // A channel that declines a kind of message gets no delivery attempt at all
+    // - not a suppressed one. A delivery event for a message never meant for
+    // that channel would be noise in the audit (ADR-031).
+    @Test
+    void aChannelThatDeclinesAnIntentTypeGetsNoAttemptRecorded() {
+        port.acceptOnly(NotificationIntentType.DAILY_BRIEFING);
+        NotificationIntent intent = createIntent();
+
+        deliveryService.deliverPending();
+
+        assertThat(intent.getIntentType()).isEqualTo(NotificationIntentType.ACTION_REQUIRED);
+        assertThat(requestsFor(intent)).isEmpty();
+        assertThat(eventsFor(intent)).isEmpty();
+    }
+
+    @Test
+    void theRecipientRecordedIsTheOneTheChannelDeclares() {
+        NotificationIntent intent = createIntent();
+
+        deliveryService.deliverPending();
+
+        assertThat(eventsFor(intent))
+                .allSatisfy(event -> assertThat(event.getRecipient())
+                        .isEqualTo("test-recipient@example.invalid"));
+    }
+
     @Test
     void theMessageIdIsStableAcrossAttemptsOfTheSameIntent() {
         port.respondWith(request -> DeliveryResult.retryable("SMTP_SEND", "timeout"));

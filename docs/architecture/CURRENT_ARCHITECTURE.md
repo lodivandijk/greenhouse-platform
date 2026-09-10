@@ -55,7 +55,7 @@ com.greenhouse.goal          Goal — user intent for a crop, not executable con
 com.greenhouse.action        Action — agricultural work performed on a crop, not machine control (persisted)
 com.greenhouse.careloop      Care loop — Decision, Command, Execution, Outcome and scope (append-only)
 com.greenhouse.briefing      Daily crop-status snapshot: structured state, soil trends, composed summary
-com.greenhouse.notification  Outbound notification — intent, policy, delivery (append-only projection)
+com.greenhouse.notification  Outbound notification — intent, policy, delivery, email + push channels
 com.greenhouse.mcp           MCP server + tools — the agent capability boundary
 com.greenhouse.common        Cross-cutting (API exception handling, idempotency)
 static/                      Read-only UI (served by Spring Boot's default static handling)
@@ -258,7 +258,8 @@ Single-page, read-only dashboard at `GET /`, served from `backend/src/main/resou
 - **The summary is not testable the way the structured briefing is.** What constrains it is the prompt, the structured fact sheet, and the fact that nothing acts on its output. That is a weaker guarantee than the tables carry, deliberately accepted.
 - **Soil trends need about a week of history** and are computed from daily means, so a newly assigned probe reports `UNKNOWN` rather than inferring a trend from two days. The "days until dry" figure is a linear extrapolation, labelled as such wherever it appears.
 - **Notification delivery is at-least-once, not exactly-once.** If the process dies between the provider accepting a message and `SENT` being recorded, a retry can duplicate it. A deterministic `Message-ID` gives the receiving server a chance to collapse the duplicate, but it is not eliminated — see ADR-023 for why that trade was made deliberately.
-- **Email is the only notification channel, and it is deployed disabled.** The port is channel-neutral so WhatsApp could be added as an adapter, but no second adapter exists. There is no inbound path: nothing can be actioned by replying to a message.
+- **Two notification channels: email and push (ntfy).** Each port declares its own recipient, content format and which intent types it carries, so a phone can want less than an inbox. Email carries the full briefing; the push carries a model-written headline or a one-line alert and deliberately quotes **no** moisture index — a bare index needs a caveat that does not fit on a lock screen (ADR-031). There is no inbound path: nothing can be actioned by replying to a message.
+- **The ntfy topic is a plain public name.** On ntfy.sh the topic name is the only access control and it governs both reading and writing, so anyone who knows it can read the greenhouse's messages and could publish a convincing fake one. Accepted deliberately for content judged not worth protecting; `base-url`, `topic` and `token` are environment-backed so moving to a protected or self-hosted server is config, not code.
 - **The notification sweep is 5-minutely**, so an actionable care loop can be up to five minutes old before anyone is told. Nothing in a greenhouse changes state faster than that.
 - **No retention policy on `notification_intent`.** Same unbounded growth as `observation`, at a far lower rate.
 - **Outcome evaluation is deliberately conservative.** A crop with no probe, no readings since the work, or an uncalibrated sensor yields `INCONCLUSIVE` with the reason recorded, never an assumed success.

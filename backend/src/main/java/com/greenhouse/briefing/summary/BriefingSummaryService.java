@@ -53,7 +53,8 @@ public class BriefingSummaryService {
         }
 
         try {
-            return BriefingSummary.written(composer.compose(factSheet), properties.model());
+            ClaudeSummaryComposer.ComposedSummary composed = composer.compose(factSheet);
+            return BriefingSummary.written(composed.text(), composed.headline(), properties.model());
         } catch (Exception e) {
             // Every failure mode lands here on purpose - no key, no credit, no
             // network, a refusal, a timeout. None of them may stop the briefing.

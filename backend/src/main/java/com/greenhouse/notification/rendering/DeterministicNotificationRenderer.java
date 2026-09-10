@@ -28,11 +28,88 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
             "Open Claude and ask for the care-loop details before approving anything or recording work.";
 
     @Override
-    public RenderedNotification render(NotificationIntent intent) {
+    public RenderedNotification render(NotificationIntent intent, ChannelFormat format) {
+        if (format == ChannelFormat.PUSH) {
+            return switch (intent.getIntentType()) {
+                case DAILY_BRIEFING -> pushBriefing(intent);
+                case ACTION_REQUIRED, REMINDER, RECOVERY -> pushCareLoop(intent);
+            };
+        }
         return switch (intent.getIntentType()) {
             case DAILY_BRIEFING -> renderBriefing(intent);
             case ACTION_REQUIRED, REMINDER, RECOVERY -> renderCareLoop(intent);
         };
+    }
+
+    // --- push: two lines on a lock screen -------------------------------
+
+    // The briefing's headline is written by the same model that writes the full
+    // summary, in the same call, so the short form is composed FOR a phone
+    // rather than sawn off the long one (ADR-031). If it is missing - an older
+    // snapshot, or a model that ignored the instruction - the first sentence of
+    // the full summary stands in. That is a parser, not a second author.
+    private RenderedNotification pushBriefing(NotificationIntent intent) {
+        Map<String, Object> payload = payload(intent);
+        Map<String, Object> briefing = map(payload.get("briefing"));
+        Map<String, Object> summary = map(briefing.get("summary"));
+
+        // NOT str(): that renders null as "-", which is unremarkable in a table
+        // cell and would be the entire push notification here.
+        String headline = text(summary.get("headline"));
+        if (headline.isBlank()) {
+            headline = firstSentence(text(summary.get("text")));
+        }
+        if (headline.isBlank()) {
+            headline = "No summary was written this morning. The emailed briefing has the readings.";
+        }
+
+        boolean isUpdate = Boolean.TRUE.equals(payload.get("isUpdate"));
+        String title = (isUpdate ? "Greenhouse - updated briefing" : "Greenhouse - daily briefing");
+
+        return new RenderedNotification(title, headline, null);
+    }
+
+    private RenderedNotification pushCareLoop(NotificationIntent intent) {
+        Map<String, Object> payload = payload(intent);
+        String subject = str(payload.get("subjectType")).equalsIgnoreCase("CROP")
+                ? "crop " + str(payload.get("subjectId"))
+                : str(payload.get("subjectId"));
+
+        String title = switch (intent.getIntentType()) {
+            case REMINDER -> "Greenhouse - still waiting";
+            case RECOVERY -> "Greenhouse - resolved";
+            default -> intent.getPriority() == NotificationPriority.CRITICAL
+                    ? "Greenhouse - CRITICAL"
+                    : "Greenhouse - action required";
+        };
+
+        StringBuilder body = new StringBuilder();
+        body.append(humanise(str(payload.get("conditionType")))).append(" (").append(subject).append(").");
+
+        String next = str(payload.get("nextRequiredAction"));
+        if (!next.isBlank()) {
+            body.append(" ").append(next);
+        }
+
+        // Deliberately no moisture numbers here: an index out of context is the
+        // easiest figure in this system to misread, and the email carries the
+        // caveat that makes it meaningful.
+        return new RenderedNotification(title, body.toString(), null);
+    }
+
+    // Null and blank both mean "nothing to say", with no placeholder standing
+    // in for content.
+    private static String text(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private static String firstSentence(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String trimmed = text.trim();
+        int end = trimmed.indexOf(". ");
+        return end < 0 ? trimmed : trimmed.substring(0, end + 1);
     }
 
     // --- daily briefing -------------------------------------------------

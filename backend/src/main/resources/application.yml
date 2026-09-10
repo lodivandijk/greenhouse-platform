@@ -97,12 +97,27 @@ greenhouse:
     reminder-interval: PT12H
     recovery-email-enabled: false
     max-delivery-attempts: 6
+    # Builds the deterministic Message-ID used to collapse an accidental
+    # duplicate. An idempotency key, not an email setting.
+    message-id-domain: ${GREENHOUSE_MESSAGE_ID_DOMAIN:greenhouse.local}
     channels:
       email:
         enabled: ${GREENHOUSE_EMAIL_ENABLED:false}
         from: ${GREENHOUSE_EMAIL_FROM:}
         to: ${GREENHOUSE_EMAIL_TO:lodi.van.dijk@gmail.com}
         message-id-domain: ${GREENHOUSE_EMAIL_MESSAGE_ID_DOMAIN:greenhouse.local}
+      # Push to a phone via ntfy. Short forms only - the inbox keeps the detail.
+      #
+      # A public ntfy.sh topic is readable AND writable by anyone who knows the
+      # name, so this is off until a topic is chosen deliberately. Set a token
+      # for a protected topic or a self-hosted server.
+      ntfy:
+        enabled: ${GREENHOUSE_NTFY_ENABLED:false}
+        base-url: ${GREENHOUSE_NTFY_BASE_URL:https://ntfy.sh}
+        topic: ${GREENHOUSE_NTFY_TOPIC:}
+        token: ${GREENHOUSE_NTFY_TOKEN:}
+        # Empty means every kind of message. Narrow it if the phone gets noisy.
+        intent-types: ${GREENHOUSE_NTFY_INTENT_TYPES:}
 
   # REST authentication (ADR-025). Every value is environment-backed.
   #
