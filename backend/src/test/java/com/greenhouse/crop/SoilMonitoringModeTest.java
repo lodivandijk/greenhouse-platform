@@ -270,6 +270,33 @@ class SoilMonitoringModeTest {
         assertThat(profileRepository.findAllByCropIdOrderByVersionDesc(crop.getId())).hasSize(3);
     }
 
+    // The briefing built fine for a healthy greenhouse and threw a
+    // ClassCastException the moment any crop was actually flagged - the crop a
+    // briefing most exists to describe. Assessments are records in the entry,
+    // not maps, and erasure hid the bad cast until runtime.
+    @Test
+    void aBriefingIsStillBuiltWhenACropHasAnActiveAssessment() {
+        // A sensor-monitored crop with no probe raises CROP_SENSOR_NOT_ASSIGNED.
+        evaluateAt(Instant.now().minus(Duration.ofHours(2)));
+        assertThat(soilAssessment()).get()
+                .extracting(AssessmentEntity::getStatus).isEqualTo(AssessmentStatus.ACTIVE);
+
+        Map<String, Object> briefing = briefingService.buildCurrentBriefing();
+
+        Map<String, Object> cropEntry = cropEntryFor(briefing, crop.getId());
+        assertThat(String.valueOf(cropEntry.get("factLine")))
+                .contains("Flagged")
+                .contains("CROP_SENSOR_NOT_ASSIGNED");
+
+        // The summary section reads the same records one call later and had the
+        // identical defect.
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) briefing.get("summary");
+        assertThat(String.valueOf(summary.get("factSheet")))
+                .contains("ACTIVE WARNINGS")
+                .contains("CROP_SENSOR_NOT_ASSIGNED");
+    }
+
     @Test
     void theBriefingReportsManualMonitoringAsUnknownRatherThanAsAGap() {
         profileService.changeSoilMonitoringMode(

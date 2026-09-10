@@ -6,6 +6,7 @@ import com.greenhouse.assessment.AssessmentLifecycleEvent;
 import com.greenhouse.assessment.AssessmentLifecycleEventRepository;
 import com.greenhouse.assessment.AssessmentMapper;
 import com.greenhouse.assessment.AssessmentRepository;
+import com.greenhouse.assessment.AssessmentResponse;
 import com.greenhouse.assessment.AssessmentStatus;
 import com.greenhouse.careloop.CareLoopQueryService;
 import com.greenhouse.careloop.OpenCareLoopSummary;
@@ -227,13 +228,13 @@ public class DailyBriefingService {
 
         for (Map<String, Object> crop : crops) {
             cropLines.add((String) crop.get("factLine"));
-            List<Map<String, Object>> assessments =
-                    (List<Map<String, Object>>) crop.getOrDefault("assessments", List.of());
+            List<AssessmentResponse> assessments =
+                    (List<AssessmentResponse>) crop.getOrDefault("assessments", List.of());
             if (!assessments.isEmpty()) {
                 attentionNames.add(String.valueOf(crop.get("species")));
                 assessments.forEach(assessment -> warningLines.add(
                         crop.get("species") + " (crop " + crop.get("cropId") + "): "
-                                + assessment.get("code") + " - " + assessment.get("message")));
+                                + assessment.code() + " - " + assessment.message()));
             }
         }
 
@@ -448,11 +449,15 @@ public class DailyBriefingService {
             line.append(" Trend: not enough history.");
         }
 
-        List<Map<String, Object>> assessments =
-                (List<Map<String, Object>>) entry.getOrDefault("assessments", List.of());
+        // These are AssessmentResponse RECORDS, not maps. Casting them to
+        // Map compiles under erasure and throws the moment a crop actually has
+        // an assessment - which is exactly the crop a briefing exists to
+        // describe.
+        List<AssessmentResponse> assessments =
+                (List<AssessmentResponse>) entry.getOrDefault("assessments", List.of());
         if (!assessments.isEmpty()) {
             line.append(" Flagged: ").append(assessments.stream()
-                    .map(assessment -> String.valueOf(assessment.get("code")))
+                    .map(assessment -> String.valueOf(assessment.code()))
                     .collect(java.util.stream.Collectors.joining(", "))).append(".");
         }
 
