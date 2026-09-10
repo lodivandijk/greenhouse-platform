@@ -74,18 +74,111 @@ class PushRenderingTest {
         assertThat(push.plainTextBody()).contains("Review the evidence");
     }
 
-    // A bare index on a lock screen is the easiest number in this system to
-    // misread, and the caveat that makes it meaningful lives in the email.
-    @Test
-    void aPushQuotesNoMoistureIndex() {
-        RenderedNotification push = renderer.render(careLoop(
-                NotificationIntentType.ACTION_REQUIRED, NotificationPriority.WARNING), PUSH);
+    private NotificationIntent flagged(String code, Map<String, Object> evidence) {
+        NotificationIntent intent = careLoop(
+                NotificationIntentType.ACTION_REQUIRED, NotificationPriority.WARNING);
+        Map<String, Object> payload = intent.getPayload();
+        payload.put("greenhouseId", "greenhouse-01");
+        payload.put("subjectSpecies", "Oregano");
 
-        assertThat(push.plainTextBody()).doesNotContain("index");
-        assertThat(push.plainTextBody()).doesNotContain("dry line");
-        assertThat(push.plainTextBody()).doesNotContain("wet ceiling");
-        // The crop id is fine; a bare measurement is not.
-        assertThat(push.plainTextBody()).doesNotContainPattern("\\b\\d+(\\.\\d+)?\\s*(points|%|C)\\b");
+        Map<String, Object> assessment = new LinkedHashMap<>();
+        assessment.put("assessmentId", 7L);
+        assessment.put("code", code);
+        assessment.put("severity", "WARNING");
+        assessment.put("message", "the engine's own sentence");
+        assessment.put("cropId", 12L);
+        assessment.put("species", "Oregano");
+        assessment.put("evidence", evidence);
+        payload.put("assessments", List.of(assessment));
+        return intent;
+    }
+
+    @Test
+    void aTemperatureWarningNamesTheCropTheActualAndTheLimit() {
+        RenderedNotification push = renderer.render(flagged("CROP_TEMPERATURE_ABOVE_PREFERRED",
+                Map.of("actualTemperatureCelsius", 25.0, "preferredMaximumCelsius", 24.0)), PUSH);
+
+        assertThat(push.plainTextBody())
+                .contains("greenhouse-01")
+                .contains("Crop 12 Oregano")
+                .contains("temperature 25C")
+                .contains("above its preferred maximum of 24C");
+    }
+
+    @Test
+    void aTemperatureBelowTheMinimumReadsTheOtherWay() {
+        RenderedNotification push = renderer.render(flagged("CROP_TEMPERATURE_BELOW_PREFERRED",
+                Map.of("actualTemperatureCelsius", 12.4, "preferredMinimumCelsius", 15.0)), PUSH);
+
+        assertThat(push.plainTextBody())
+                .contains("temperature 12.4C")
+                .contains("below its preferred minimum of 15C");
+    }
+
+    // The index gets its scale attached wherever it appears. A bare "43", or
+    // worse "43%", is the easiest number in this system to misread.
+    @Test
+    void aMoistureIndexAlwaysCarriesItsScale() {
+        RenderedNotification push = renderer.render(flagged("CROP_SOIL_MOISTURE_LOW",
+                Map.of("moistureIndex", 43.0, "dryThresholdIndex", 50.0)), PUSH);
+
+        assertThat(push.plainTextBody()).contains("soil 43 of 100");
+        assertThat(push.plainTextBody()).contains("at or below its dry line of 50");
+        assertThat(push.plainTextBody()).doesNotContain("43%");
+    }
+
+    @Test
+    void aWetWarningComparesAgainstTheCeiling() {
+        RenderedNotification push = renderer.render(flagged("CROP_SOIL_MOISTURE_HIGH",
+                Map.of("moistureIndex", 100.0, "wetThresholdIndex", 75.0)), PUSH);
+
+        assertThat(push.plainTextBody()).contains("soil 100 of 100");
+        assertThat(push.plainTextBody()).contains("at or above its wet ceiling of 75");
+    }
+
+    // Several crops in one shared greenhouse loop: naming only the first would
+    // hide the rest.
+    @Test
+    void everyFlaggedCropGetsItsOwnLine() {
+        NotificationIntent intent = flagged("CROP_TEMPERATURE_ABOVE_PREFERRED",
+                Map.of("actualTemperatureCelsius", 25.0, "preferredMaximumCelsius", 24.0));
+        Map<String, Object> second = new LinkedHashMap<>();
+        second.put("code", "CROP_TEMPERATURE_ABOVE_PREFERRED");
+        second.put("cropId", 8L);
+        second.put("species", "Basil");
+        second.put("evidence", Map.of(
+                "actualTemperatureCelsius", 25.0, "preferredMaximumCelsius", 27.0));
+
+        List<Object> both = new java.util.ArrayList<>(
+                (List<Object>) intent.getPayload().get("assessments"));
+        both.add(second);
+        intent.getPayload().put("assessments", both);
+
+        String body = renderer.render(intent, PUSH).plainTextBody();
+
+        assertThat(body).contains("Crop 12 Oregano").contains("Crop 8 Basil");
+        assertThat(body.lines().count()).isGreaterThanOrEqualTo(2);
+    }
+
+    // An older intent, captured before the payload carried species or
+    // greenhouse id, must still render something useful.
+    @Test
+    void anIntentWithoutTheNewFieldsStillRenders() {
+        NotificationIntent intent = careLoop(
+                NotificationIntentType.ACTION_REQUIRED, NotificationPriority.WARNING);
+
+        String body = renderer.render(intent, PUSH).plainTextBody();
+
+        assertThat(body).contains("crop soil moisture high");
+        assertThat(body).contains("Review the evidence");
+    }
+
+    @Test
+    void anUnrecognisedCodeIsNeverRenderedAsAnEmptyLine() {
+        RenderedNotification push = renderer.render(
+                flagged("SOME_FUTURE_CODE", Map.of()), PUSH);
+
+        assertThat(push.plainTextBody()).contains("some future code");
     }
 
     @Test

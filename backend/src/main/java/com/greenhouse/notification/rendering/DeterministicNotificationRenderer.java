@@ -6,6 +6,7 @@ import com.greenhouse.notification.NotificationPriority;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -84,16 +85,24 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
         };
 
         StringBuilder body = new StringBuilder();
-        body.append(humanise(str(payload.get("conditionType")))).append(" (").append(subject).append(").");
 
-        String next = str(payload.get("nextRequiredAction"));
-        if (!next.isBlank()) {
-            body.append(" ").append(next);
+        List<Object> assessments = list(payload.get("assessments"));
+        if (assessments.isEmpty()) {
+            body.append(humanise(str(payload.get("conditionType"))))
+                    .append(" (").append(subject).append(").");
+        } else {
+            // One line per flagged crop. A shared greenhouse loop can cover
+            // several, and naming only the first would hide the rest.
+            body.append(assessments.stream()
+                    .map(entry -> measurementLine(payload, map(entry)))
+                    .collect(java.util.stream.Collectors.joining("\n")));
         }
 
-        // Deliberately no moisture numbers here: an index out of context is the
-        // easiest figure in this system to misread, and the email carries the
-        // caveat that makes it meaningful.
+        String next = text(payload.get("nextRequiredAction"));
+        if (!next.isBlank()) {
+            body.append("\n").append(next);
+        }
+
         return new RenderedNotification(title, body.toString(), null);
     }
 
@@ -101,6 +110,95 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
     // in for content.
     private static String text(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    // "greenhouse-01 Crop 12 Oregano soil 100 of 100, at or above its wet
+    // ceiling of 75" - what is wrong, on what, measured against what it should
+    // be. Built from the evidence the assessment engine already recorded, so
+    // the numbers here are the same ones that raised the assessment (ADR-032).
+    private static String measurementLine(Map<String, Object> payload, Map<String, Object> assessment) {
+        Map<String, Object> evidence = map(assessment.get("evidence"));
+        String code = text(assessment.get("code"));
+
+        StringBuilder line = new StringBuilder();
+
+        String greenhouseId = text(payload.get("greenhouseId"));
+        if (!greenhouseId.isBlank()) {
+            line.append(greenhouseId).append(" ");
+        }
+
+        Object cropId = assessment.get("cropId") != null
+                ? assessment.get("cropId") : payload.get("subjectId");
+        String species = text(assessment.get("species")).isBlank()
+                ? text(payload.get("subjectSpecies")) : text(assessment.get("species"));
+
+        if (cropId != null) {
+            line.append("Crop ").append(text(cropId));
+            if (!species.isBlank()) {
+                line.append(" ").append(species);
+            }
+            line.append(" ");
+        }
+
+        line.append(comparison(code, evidence));
+        return line.toString().trim();
+    }
+
+    private static String comparison(String code, Map<String, Object> evidence) {
+        return switch (code) {
+            case "CROP_TEMPERATURE_ABOVE_PREFERRED" -> String.format(Locale.ROOT,
+                    "temperature %s, above its preferred maximum of %s",
+                    degrees(evidence.get("actualTemperatureCelsius")),
+                    degrees(evidence.get("preferredMaximumCelsius")));
+            case "CROP_TEMPERATURE_BELOW_PREFERRED" -> String.format(Locale.ROOT,
+                    "temperature %s, below its preferred minimum of %s",
+                    degrees(evidence.get("actualTemperatureCelsius")),
+                    degrees(evidence.get("preferredMinimumCelsius")));
+            // "of 100" rather than a bare number or a percent sign: the index is
+            // a position on that probe's own scale, and a reader who takes it
+            // for a water percentage has been misled (ADR-031).
+            case "CROP_SOIL_MOISTURE_LOW" -> String.format(Locale.ROOT,
+                    "soil %s of 100, at or below its dry line of %s",
+                    number(evidence.get("moistureIndex")),
+                    number(evidence.get("dryThresholdIndex")));
+            case "CROP_SOIL_MOISTURE_HIGH" -> String.format(Locale.ROOT,
+                    "soil %s of 100, at or above its wet ceiling of %s",
+                    number(evidence.get("moistureIndex")),
+                    number(evidence.get("wetThresholdIndex")));
+            case "HUMIDITY_ABOVE_LIMIT" -> String.format(Locale.ROOT,
+                    "humidity %s%%, above the limit of %s%%",
+                    number(evidence.get("actualHumidityPercent")),
+                    number(evidence.get("maximumHumidityPercent")));
+            case "HUMIDITY_BELOW_LIMIT" -> String.format(Locale.ROOT,
+                    "humidity %s%%, below the limit of %s%%",
+                    number(evidence.get("actualHumidityPercent")),
+                    number(evidence.get("minimumHumidityPercent")));
+            case "DEVICE_OFFLINE" -> "device has stopped reporting, last seen "
+                    + text(evidence.get("lastSeenAt"));
+            case "OBSERVATION_STALE" -> "readings have gone stale";
+            case "CROP_SENSOR_NOT_ASSIGNED" -> "no soil probe is assigned, so its soil state is unknown";
+            case "CROP_SENSOR_CALIBRATION_REQUIRED" -> "its probe is uncalibrated, so no index can be read";
+            case "CROP_SENSOR_DATA_STALE" -> "its probe has stopped reporting, so its soil state is unknown";
+            // An unrecognised code must not silently become an empty line.
+            default -> humanise(code);
+        };
+    }
+
+    private static String degrees(Object value) {
+        String formatted = number(value);
+        return formatted.isBlank() ? "unknown" : formatted + "C";
+    }
+
+    // One decimal only when it says something - "25C" reads better than
+    // "25.0C", and "25.1C" is worth the character.
+    private static String number(Object value) {
+        if (!(value instanceof Number n)) {
+            return "";
+        }
+        double d = n.doubleValue();
+        return d == Math.rint(d)
+                ? String.format(Locale.ROOT, "%.0f", d)
+                : String.format(Locale.ROOT, "%.1f", d);
     }
 
     private static String firstSentence(String text) {
@@ -302,7 +400,8 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
             text.append("EVIDENCE\n");
             for (Object entry : assessments) {
                 Map<String, Object> assessment = map(entry);
-                text.append("  * ").append(str(assessment.get("message"))).append("\n");
+                text.append("  * ").append(measurementLine(payload, assessment)).append("\n");
+                text.append("      ").append(str(assessment.get("message"))).append("\n");
                 text.append("      ").append(str(assessment.get("code")))
                         .append(" (").append(str(assessment.get("severity"))).append(")");
                 if (assessment.get("monitoringProfileVersion") != null) {

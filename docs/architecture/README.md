@@ -49,7 +49,8 @@ docs/architecture/
 │   ├── ADR-028-soil-moisture-bands.md
 │   ├── ADR-029-briefing-trends-and-composed-summary.md
 │   ├── ADR-030-one-briefing-summary-writer.md
-│   └── ADR-031-push-notifications-via-ntfy.md
+│   ├── ADR-031-push-notifications-via-ntfy.md
+│   └── ADR-032-warnings-state-actual-and-expected.md
 ├── legacy/                           superseded documents, kept for history
 ├── digital-twin-v1-spec.md           milestone spec
 ├── assessment-engine-v1-spec.md      milestone spec

@@ -1,6 +1,6 @@
 # ADR-031: A Second Channel, Rendered for Its Medium
 
-**Status:** Accepted
+**Status:** Accepted (the no-measurements rule is amended by ADR-032)
 **Date:** 2026-09-10
 
 ## Context

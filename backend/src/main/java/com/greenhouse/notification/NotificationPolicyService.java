@@ -11,6 +11,7 @@ import com.greenhouse.careloop.CareLoopAssessment;
 import com.greenhouse.careloop.CareLoopAssessmentRepository;
 import com.greenhouse.careloop.CareLoopProjectionService;
 import com.greenhouse.careloop.CareLoopRepository;
+import com.greenhouse.careloop.CareLoopSubjectType;
 import com.greenhouse.careloop.CareLoopStatus;
 import com.greenhouse.careloop.CareLoopStatusEvent;
 import com.greenhouse.careloop.CareLoopStatusEventRepository;
@@ -73,6 +74,8 @@ public class NotificationPolicyService {
     private final CommandService commandService;
     private final ScopeService scopeService;
     private final AssessmentRepository assessmentRepository;
+    private final com.greenhouse.crop.CropRepository cropRepository;
+    private final com.greenhouse.twin.config.TwinProperties twinProperties;
     private final DailyBriefingSnapshotRepository briefingSnapshotRepository;
     private final MeterRegistry meterRegistry;
     private final Clock clock;
@@ -90,6 +93,8 @@ public class NotificationPolicyService {
             CommandService commandService,
             ScopeService scopeService,
             AssessmentRepository assessmentRepository,
+            com.greenhouse.crop.CropRepository cropRepository,
+            com.greenhouse.twin.config.TwinProperties twinProperties,
             DailyBriefingSnapshotRepository briefingSnapshotRepository,
             MeterRegistry meterRegistry,
             Clock clock
@@ -106,6 +111,8 @@ public class NotificationPolicyService {
         this.commandService = commandService;
         this.scopeService = scopeService;
         this.assessmentRepository = assessmentRepository;
+        this.cropRepository = cropRepository;
+        this.twinProperties = twinProperties;
         this.briefingSnapshotRepository = briefingSnapshotRepository;
         this.meterRegistry = meterRegistry;
         this.clock = clock;
@@ -242,6 +249,9 @@ public class NotificationPolicyService {
         payload.put("subjectType", String.valueOf(loop.getPrimarySubjectType()));
         payload.put("subjectId", loop.getPrimarySubjectId());
         payload.put("conditionType", loop.getConditionType());
+        payload.put("greenhouseId", twinProperties.greenhouseId());
+        payload.put("subjectSpecies", loop.getPrimarySubjectType() == CareLoopSubjectType.CROP
+                ? speciesFor(asLong(loop.getPrimarySubjectId())) : null);
         payload.put("status", state.status().name());
         payload.put("nextRequiredAction", projectionService.nextRequiredAction(loop.getId()));
         payload.put("openedAt", String.valueOf(loop.getOpenedAt()));
@@ -264,6 +274,25 @@ public class NotificationPolicyService {
         intent.setNotBefore(now);
         intent.setCreatedAt(now);
         return intent;
+    }
+
+    // A crop's species, or null if it cannot be resolved. Captured at intent
+    // time so a later rename or deletion cannot change what an old message
+    // says it was about.
+    private String speciesFor(Long cropId) {
+        if (cropId == null) {
+            return null;
+        }
+        return cropRepository.findById(cropId).map(com.greenhouse.crop.Crop::getSpecies).orElse(null);
+    }
+
+    private static Long asLong(String value) {
+        try {
+            return value == null ? null : Long.valueOf(value);
+        } catch (NumberFormatException e) {
+            // A greenhouse-scoped loop's subject id is not a number.
+            return null;
+        }
     }
 
     // --- actionable state + fingerprint ---------------------------------
@@ -329,6 +358,7 @@ public class NotificationPolicyService {
             entry.put("severity", String.valueOf(assessment.getSeverity()));
             entry.put("message", assessment.getMessage());
             entry.put("cropId", assessment.getCropId());
+            entry.put("species", speciesFor(assessment.getCropId()));
             entry.put("evidence", assessment.getEvidence());
             entry.put("monitoringProfileVersion", assessment.getMonitoringProfileVersion());
             entry.put("calibrationVersion", assessment.getCalibrationVersion());
