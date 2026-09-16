@@ -15,4 +15,10 @@ public interface DailyBriefingSnapshotRepository extends JpaRepository<DailyBrie
     List<DailyBriefingSnapshot> findAllByGreenhouseDayOrderByGeneratedAtAsc(LocalDate greenhouseDay);
 
     boolean existsByGreenhouseDay(LocalDate greenhouseDay);
+
+    // The uniqueness that matters now: one briefing per day PER EDITION.
+    boolean existsByGreenhouseDayAndEdition(LocalDate greenhouseDay, BriefingEdition edition);
+
+    Optional<DailyBriefingSnapshot> findFirstByGreenhouseDayAndEditionOrderByGeneratedAtDescIdDesc(
+            LocalDate greenhouseDay, BriefingEdition edition);
 }

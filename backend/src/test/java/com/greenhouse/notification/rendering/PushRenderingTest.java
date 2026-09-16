@@ -200,7 +200,7 @@ class PushRenderingTest {
                 briefing("Thyme is two days from dry; nothing else needs you.",
                         "Long form paragraphs that would not fit on a phone."), PUSH);
 
-        assertThat(push.subject()).isEqualTo("Greenhouse - daily briefing");
+        assertThat(push.subject()).isEqualTo("Greenhouse - morning briefing");
         assertThat(push.plainTextBody()).isEqualTo("Thyme is two days from dry; nothing else needs you.");
         assertThat(push.plainTextBody()).doesNotContain("Long form");
     }

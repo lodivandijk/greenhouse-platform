@@ -13,7 +13,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
 
-// One immutable structured briefing per greenhouse day. Regenerating creates a
+// One immutable structured briefing per greenhouse day PER EDITION (ADR-033).
+// Regenerating creates a
 // new version linked to the previous one rather than overwriting, so what was
 // reported on a given morning stays exactly as it was reported (ADR-021).
 @Entity
@@ -27,6 +28,10 @@ public class DailyBriefingSnapshot {
 
     @Column(name = "greenhouse_day")
     private LocalDate greenhouseDay;
+
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "edition")
+    private BriefingEdition edition;
 
     @Column(name = "scheduled_for")
     private Instant scheduledFor;
@@ -55,6 +60,8 @@ public class DailyBriefingSnapshot {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public BriefingEdition getEdition() { return edition; }
+    public void setEdition(BriefingEdition edition) { this.edition = edition; }
     public LocalDate getGreenhouseDay() { return greenhouseDay; }
     public void setGreenhouseDay(LocalDate greenhouseDay) { this.greenhouseDay = greenhouseDay; }
     public Instant getScheduledFor() { return scheduledFor; }

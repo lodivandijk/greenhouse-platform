@@ -72,10 +72,33 @@ class ChannelRoutingTest {
                 true, Duration.ofMinutes(5), Duration.ofSeconds(45), Duration.ofHours(12),
                 false, 6, "  ",
                 new NotificationProperties.Channels(
-                        new NotificationProperties.Email(false, null, null, null),
+                        new NotificationProperties.Email(false, null, null, null, java.util.List.of()),
                         ntfy(true, null, "greenhouse", List.of())));
 
         assertThat(properties.messageIdDomain()).isEqualTo("greenhouse.local");
+    }
+
+    // The inbox now carries briefings only; warnings go to the phone (ADR-033).
+    @Test
+    void anEmailChannelNarrowedToBriefingsDeclinesWarnings() {
+        NotificationProperties.Email briefingsOnly = new NotificationProperties.Email(
+                true, "from@example.invalid", "to@example.invalid", null,
+                List.of(NotificationIntentType.DAILY_BRIEFING));
+
+        assertThat(briefingsOnly.carries(NotificationIntentType.DAILY_BRIEFING)).isTrue();
+        assertThat(briefingsOnly.carries(NotificationIntentType.ACTION_REQUIRED)).isFalse();
+        assertThat(briefingsOnly.carries(NotificationIntentType.REMINDER)).isFalse();
+        assertThat(briefingsOnly.carries(NotificationIntentType.RECOVERY)).isFalse();
+    }
+
+    @Test
+    void anEmailChannelWithNoFilterStillCarriesEverything() {
+        NotificationProperties.Email all = new NotificationProperties.Email(
+                true, "from@example.invalid", "to@example.invalid", null, List.of());
+
+        for (NotificationIntentType type : NotificationIntentType.values()) {
+            assertThat(all.carries(type)).as("%s", type).isTrue();
+        }
     }
 
     @Test

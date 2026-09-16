@@ -76,7 +76,12 @@ greenhouse:
   daily-briefing:
     enabled: true
     zone: Europe/London
-    generate-at: "06:00"
+    # Two editions: one read before leaving the house, one on getting home
+    # while there is still time to act (ADR-033).
+    morning-at: ${GREENHOUSE_BRIEFING_MORNING_AT:06:00}
+    evening-at: ${GREENHOUSE_BRIEFING_EVENING_AT:19:00}
+    # Only used by the compute-on-demand path; scheduled editions run from the
+    # previous edition's time.
     window: PT24H
     # The briefing's opening paragraphs. Deterministic text is always computed
     # first and is used whenever the model is off or unreachable, so a briefing
@@ -106,6 +111,9 @@ greenhouse:
         from: ${GREENHOUSE_EMAIL_FROM:}
         to: ${GREENHOUSE_EMAIL_TO:lodi.van.dijk@gmail.com}
         message-id-domain: ${GREENHOUSE_EMAIL_MESSAGE_ID_DOMAIN:greenhouse.local}
+        # The inbox carries briefings; warnings and reminders go to the phone.
+        # Empty would mean everything.
+        intent-types: ${GREENHOUSE_EMAIL_INTENT_TYPES:DAILY_BRIEFING}
       # Push to a phone via ntfy. Short forms only - the inbox keeps the detail.
       #
       # A public ntfy.sh topic is readable AND writable by anyone who knows the

@@ -117,67 +117,95 @@ public class DailyBriefingService {
         this.clock = clock;
     }
 
-    // Generates today's snapshot only when it is genuinely due: at or after the
-    // configured local time, and not already present.
+    // Generates whichever editions are genuinely due: at or after their local
+    // time, not already present, and not yet overtaken by the next edition.
     //
     // The time check matters as much as the existence check. Without it, any
-    // restart produced a "daily briefing" stamped with today's 06:00 schedule
-    // but actually generated at whatever hour the process happened to start -
-    // which is exactly what happened in production, where a deploy at 23:59
-    // created that day's briefing four minutes before midnight.
+    // restart produced a "daily briefing" stamped with today's schedule but
+    // actually generated at whatever hour the process happened to start - which
+    // is exactly what happened in production, where a deploy at 23:59 created
+    // that day's briefing four minutes before midnight.
     //
-    // Safe to call repeatedly from both the scheduler and startup recovery: the
-    // existence check is what keeps recovery idempotent.
+    // The STALENESS check is the second half of the same idea, and it is what
+    // stops a restart at 20:00 sending two briefings at once: a morning
+    // briefing generated after the evening one is due is not a recovered
+    // briefing, it is a wrong one (ADR-033).
+    //
+    // Safe to call repeatedly from both the scheduler and startup recovery.
     @Transactional
-    public Optional<DailyBriefingSnapshot> generateIfDue(boolean missedRunRecovery) {
+    public List<DailyBriefingSnapshot> generateIfDue(boolean missedRunRecovery) {
         ZonedDateTime now = ZonedDateTime.ofInstant(clock.instant(), properties.zoneId());
         LocalDate today = now.toLocalDate();
 
-        if (snapshotRepository.existsByGreenhouseDay(today)) {
+        List<DailyBriefingSnapshot> generated = new ArrayList<>();
+        // Yesterday's evening edition is still the current one until this
+        // morning's is due, so an overnight restart recovers it rather than
+        // skipping straight to today.
+        generateIfCurrent(BriefingEdition.EVENING, today.minusDays(1), now, missedRunRecovery)
+                .ifPresent(generated::add);
+        generateIfCurrent(BriefingEdition.MORNING, today, now, missedRunRecovery)
+                .ifPresent(generated::add);
+        generateIfCurrent(BriefingEdition.EVENING, today, now, missedRunRecovery)
+                .ifPresent(generated::add);
+        return generated;
+    }
+
+    private Optional<DailyBriefingSnapshot> generateIfCurrent(
+            BriefingEdition edition, LocalDate day, ZonedDateTime now, boolean missedRunRecovery
+    ) {
+        if (snapshotRepository.existsByGreenhouseDayAndEdition(day, edition)) {
             return Optional.empty();
         }
-
-        ZonedDateTime dueAt = today.atTime(properties.generateAt()).atZone(properties.zoneId());
-        if (now.isBefore(dueAt)) {
-            // Before today's briefing time. Yesterday's snapshot stands; today's
-            // is not late, it simply has not come round yet.
+        if (now.isBefore(properties.scheduledFor(edition, day))) {
+            // Not late - it simply has not come round yet.
             return Optional.empty();
         }
-
-        return Optional.of(generate(today, missedRunRecovery, null));
+        if (!now.isBefore(properties.staleAfter(edition, day))) {
+            // The next edition is already due; this one is history. A day may
+            // therefore end with only one briefing, which is the honest record
+            // of what happened rather than a retrospective invention.
+            return Optional.empty();
+        }
+        return Optional.of(generate(day, edition, missedRunRecovery, null));
     }
 
     // Explicit regeneration creates a NEW version linked to the previous one;
     // the earlier snapshot is never overwritten.
     @Transactional
-    public DailyBriefingSnapshot regenerate(LocalDate greenhouseDay) {
+    public DailyBriefingSnapshot regenerate(LocalDate greenhouseDay, BriefingEdition edition) {
         Long supersedes = snapshotRepository
-                .findFirstByGreenhouseDayOrderByGeneratedAtDescIdDesc(greenhouseDay)
+                .findFirstByGreenhouseDayAndEditionOrderByGeneratedAtDescIdDesc(greenhouseDay, edition)
                 .map(DailyBriefingSnapshot::getId)
                 .orElse(null);
-        return generate(greenhouseDay, false, supersedes);
+        return generate(greenhouseDay, edition, false, supersedes);
     }
 
-    private DailyBriefingSnapshot generate(LocalDate greenhouseDay, boolean missedRunRecovery, Long supersedesId) {
+    private DailyBriefingSnapshot generate(
+            LocalDate greenhouseDay, BriefingEdition edition, boolean missedRunRecovery, Long supersedesId
+    ) {
         Instant now = clock.instant();
-        ZonedDateTime scheduled = greenhouseDay.atTime(properties.generateAt()).atZone(properties.zoneId());
+        ZonedDateTime scheduled = properties.scheduledFor(edition, greenhouseDay);
         Instant windowEnd = now;
-        Instant windowStart = now.minus(properties.window());
+        // Since the PREVIOUS edition, not a fixed 24 hours - which is what lets
+        // the evening briefing answer "what changed while I was out" rather
+        // than repeating the morning (ADR-033).
+        Instant windowStart = properties.windowStartFor(edition, greenhouseDay).toInstant();
 
         DailyBriefingSnapshot snapshot = new DailyBriefingSnapshot();
         snapshot.setGreenhouseDay(greenhouseDay);
+        snapshot.setEdition(edition);
         snapshot.setScheduledFor(scheduled.toInstant());
         snapshot.setGeneratedAt(now);
         snapshot.setWindowStart(windowStart);
         snapshot.setWindowEnd(windowEnd);
         snapshot.setMissedRunRecovery(missedRunRecovery);
         snapshot.setSupersedesSnapshotId(supersedesId);
-        snapshot.setSnapshot(buildBriefing(windowStart, windowEnd, now));
+        snapshot.setSnapshot(buildBriefing(windowStart, windowEnd, now, edition));
 
         DailyBriefingSnapshot saved = snapshotRepository.save(snapshot);
         LOGGER.info(
-                "Daily briefing generated: id={} day={} missedRunRecovery={}",
-                saved.getId(), greenhouseDay, missedRunRecovery
+                "Daily briefing generated: id={} day={} edition={} missedRunRecovery={}",
+                saved.getId(), greenhouseDay, edition, missedRunRecovery
         );
         return saved;
     }
@@ -186,10 +214,11 @@ public class DailyBriefingService {
     // when no snapshot exists yet, so a fresh install still answers usefully.
     public Map<String, Object> buildCurrentBriefing() {
         Instant now = clock.instant();
-        return buildBriefing(now.minus(properties.window()), now, now);
+        return buildBriefing(now.minus(properties.window()), now, now, BriefingEdition.MORNING);
     }
 
-    private Map<String, Object> buildBriefing(Instant windowStart, Instant windowEnd, Instant now) {
+    private Map<String, Object> buildBriefing(
+            Instant windowStart, Instant windowEnd, Instant now, BriefingEdition edition) {
         GreenhouseTwin twin = twinService.getCurrentTwin();
 
         Map<String, Object> briefing = new LinkedHashMap<>();
@@ -209,14 +238,15 @@ public class DailyBriefingService {
 
         // Composed last, from the structured briefing that precedes it, so the
         // prose can never describe something the evidence does not contain.
-        briefing.put("summary", summarySection(briefing, twin, windowStart));
+        briefing.put("edition", edition.name());
+        briefing.put("summary", summarySection(briefing, twin, windowStart, edition));
 
         return briefing;
     }
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> summarySection(
-            Map<String, Object> briefing, GreenhouseTwin twin, Instant windowStart
+            Map<String, Object> briefing, GreenhouseTwin twin, Instant windowStart, BriefingEdition edition
     ) {
         List<Map<String, Object>> crops = (List<Map<String, Object>>) briefing.get("crops");
         List<Map<String, Object>> loops = (List<Map<String, Object>>) briefing.get("openCareLoops");
@@ -265,7 +295,7 @@ public class DailyBriefingService {
         String factSheet = summaryService.buildFactSheet(
                 greenhouseLine, cropLines, warningLines, loopLines, gapLines);
 
-        BriefingSummary summary = summaryService.summarise(factSheet);
+        BriefingSummary summary = summaryService.summarise(factSheet, edition);
 
         Map<String, Object> section = new LinkedHashMap<>();
         section.put("text", summary.text());
@@ -638,6 +668,10 @@ public class DailyBriefingService {
 
     public Optional<DailyBriefingSnapshot> latestSnapshot() {
         return snapshotRepository.findFirstByOrderByGeneratedAtDescIdDesc();
+    }
+
+    public Optional<DailyBriefingSnapshot> snapshotForDay(LocalDate day, BriefingEdition edition) {
+        return snapshotRepository.findFirstByGreenhouseDayAndEditionOrderByGeneratedAtDescIdDesc(day, edition);
     }
 
     public Optional<DailyBriefingSnapshot> snapshotForDay(LocalDate day) {

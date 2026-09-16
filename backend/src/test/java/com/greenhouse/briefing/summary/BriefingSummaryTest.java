@@ -1,5 +1,6 @@
 package com.greenhouse.briefing.summary;
 
+import com.greenhouse.briefing.BriefingEdition;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -7,6 +8,7 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -29,10 +31,10 @@ class BriefingSummaryTest {
     @Test
     void aWrittenSummaryIsAttributedToTheModel() {
         ClaudeSummaryComposer composer = mock(ClaudeSummaryComposer.class);
-        when(composer.compose(anyString())).thenReturn(new ClaudeSummaryComposer.ComposedSummary(
+        when(composer.compose(anyString(), any())).thenReturn(new ClaudeSummaryComposer.ComposedSummary(
                 "Thyme needs a look.", "The thyme is the one worth a look."));
 
-        BriefingSummary summary = serviceWith(composer).summarise("fact sheet");
+        BriefingSummary summary = serviceWith(composer).summarise("fact sheet", BriefingEdition.MORNING);
 
         assertThat(summary.isPresent()).isTrue();
         assertThat(summary.text()).contains("thyme");
@@ -44,7 +46,7 @@ class BriefingSummaryTest {
 
     @Test
     void withNoWriterConfiguredThereIsNoSummaryAndItSaysSo() {
-        BriefingSummary summary = serviceWith(null).summarise("fact sheet");
+        BriefingSummary summary = serviceWith(null).summarise("fact sheet", BriefingEdition.MORNING);
 
         assertThat(summary.isPresent()).isFalse();
         assertThat(summary.unavailableReason()).contains("no summary writer is configured");
@@ -56,9 +58,9 @@ class BriefingSummaryTest {
     @Test
     void anApiFailureLeavesTheBriefingIntactAndRecordsWhy() {
         ClaudeSummaryComposer composer = mock(ClaudeSummaryComposer.class);
-        when(composer.compose(anyString())).thenThrow(new RuntimeException("connection refused"));
+        when(composer.compose(anyString(), any())).thenThrow(new RuntimeException("connection refused"));
 
-        BriefingSummary summary = serviceWith(composer).summarise("fact sheet");
+        BriefingSummary summary = serviceWith(composer).summarise("fact sheet", BriefingEdition.MORNING);
 
         assertThat(summary.isPresent()).isFalse();
         assertThat(summary.unavailableReason()).contains("could not be written");
@@ -68,14 +70,25 @@ class BriefingSummaryTest {
     @Test
     void aRefusalIsAFailureNotAnEmptySummary() {
         ClaudeSummaryComposer composer = mock(ClaudeSummaryComposer.class);
-        when(composer.compose(anyString()))
+        when(composer.compose(anyString(), any()))
                 .thenThrow(new IllegalStateException("The model returned no text (stop reason: refusal)."));
 
-        assertThat(serviceWith(composer).summarise("fact sheet").isPresent()).isFalse();
+        assertThat(serviceWith(composer).summarise("fact sheet", BriefingEdition.MORNING).isPresent()).isFalse();
     }
 
     // The fact sheet is the model's only permitted source, so absences must be
     // present in it explicitly - a missing section reads as "nothing to report".
+    @Test
+    void theEditionIsPassedToTheComposerRatherThanDropped() {
+        ClaudeSummaryComposer composer = mock(ClaudeSummaryComposer.class);
+        when(composer.compose(anyString(), any()))
+                .thenReturn(new ClaudeSummaryComposer.ComposedSummary("h", "t"));
+
+        serviceWith(composer).summarise("fact sheet", BriefingEdition.EVENING);
+
+        org.mockito.Mockito.verify(composer).compose("fact sheet", BriefingEdition.EVENING);
+    }
+
     @Test
     void theFactSheetStatesAbsencesExplicitly() {
         String sheet = serviceWith(null).buildFactSheet(

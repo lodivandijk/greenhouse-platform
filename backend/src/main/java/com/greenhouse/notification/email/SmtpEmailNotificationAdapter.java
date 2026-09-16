@@ -66,8 +66,11 @@ public class SmtpEmailNotificationAdapter implements NotificationDeliveryPort {
 
     @Override
     public boolean accepts(NotificationIntentType intentType) {
-        // The inbox is the complete record; everything goes there.
-        return true;
+        // The inbox is no longer everything. It carries what it is configured
+        // to carry - briefings, in this deployment - and the complete record of
+        // what was decided and delivered lives in notification_intent and
+        // notification_delivery_event, not in a mailbox (ADR-033).
+        return properties.channels().email().carries(intentType);
     }
 
     @Override

@@ -190,6 +190,8 @@
   },
   "active": "f9597b3ebb054b95",
   "lastOpenFiles": [
+    "architecture/decisions/ADR-033-briefing-editions-and-channel-scope.md",
+    "architecture/decisions/ADR-032-warnings-state-actual-and-expected.md",
     "architecture/decisions/ADR-031-push-notifications-via-ntfy.md",
     "architecture/decisions/ADR-030-one-briefing-summary-writer.md",
     "architecture/decisions/ADR-029-briefing-trends-and-composed-summary.md",

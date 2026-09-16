@@ -1,6 +1,7 @@
 package com.greenhouse.briefing.summary;
 
 import com.anthropic.client.AnthropicClient;
+import com.greenhouse.briefing.BriefingEdition;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.OutputConfig;
@@ -36,10 +37,7 @@ public class ClaudeSummaryComposer {
     // The honesty rules are in the prompt because they are what a language
     // model gets wrong: inventing a cause, rounding a number into a different
     // number, or turning "we did not measure" into "it is fine".
-    private static final String SYSTEM_PROMPT = """
-            You write the morning briefing for a small domestic greenhouse. The reader is the person who
-            tends it. They will read this once, on a phone, before deciding whether to go out and do
-            something.
+    private static final String SHARED_PROMPT = """
 
             You are given a fact sheet produced by the greenhouse platform. Write 2-4 short paragraphs of
             plain prose summarising it: what changed, what needs attention today, and what is simply
@@ -75,10 +73,38 @@ public class ClaudeSummaryComposer {
 
             The headline goes to a phone as a push notification, read in a glance on a lock screen with no
             tables underneath it and no way to see more without opening the email. Put the single thing
-            most worth knowing in it. If nothing needs a decision, say that plainly - a quiet morning is
+            most worth knowing in it. If nothing needs a decision, say that plainly - a quiet greenhouse is
             useful information and should not be dressed up. The same rules above apply to it, especially
             never implying that something unmeasured is fine.
             """;
+
+    // The two editions are read at different moments by a reader who can do
+    // different things about them, so they are asked for different emphasis
+    // (ADR-033).
+    private static final String MORNING_FRAMING = """
+            You write the MORNING briefing for a small domestic greenhouse. The reader is the person who
+            tends it. They will read this once, on a phone, early, before deciding whether to go out and
+            do something before leaving for the day.
+
+            Lead with anything that should be dealt with before they leave. If something can wait until
+            evening, say so - their time before work is short.
+            """;
+
+    private static final String EVENING_FRAMING = """
+            You write the EVENING briefing for a small domestic greenhouse. The reader has just got home
+            from work and has an hour of usable light. They will read this once, on a phone, deciding what
+            to actually do tonight.
+
+            Lead with what is worth doing THIS EVENING, and say plainly when the answer is nothing. Cover
+            what changed during the day while they were out - that is the window this briefing reports on
+            and the thing they could not see for themselves. If something is drifting but has days of
+            slack, say it can wait rather than presenting it as tonight's job.
+            """;
+
+    private static String systemPrompt(BriefingEdition edition) {
+        String framing = edition == BriefingEdition.EVENING ? EVENING_FRAMING : MORNING_FRAMING;
+        return framing + "\n" + SHARED_PROMPT;
+    }
 
     private final AnthropicClient client;
     private final BriefingSummaryProperties properties;
@@ -94,11 +120,11 @@ public class ClaudeSummaryComposer {
     public record ComposedSummary(String headline, String text) {
     }
 
-    public ComposedSummary compose(String factSheet) {
+    public ComposedSummary compose(String factSheet, BriefingEdition edition) {
         MessageCreateParams params = MessageCreateParams.builder()
                 .model(properties.model())
                 .maxTokens(properties.maxTokens())
-                .system(SYSTEM_PROMPT)
+                .system(systemPrompt(edition))
                 // Adaptive thinking, but modest effort: this is a summary of
                 // supplied facts, not a hard reasoning problem, and it runs
                 // unattended once a day.
@@ -106,7 +132,7 @@ public class ClaudeSummaryComposer {
                 .outputConfig(OutputConfig.builder()
                         .effort(OutputConfig.Effort.MEDIUM)
                         .build())
-                .addUserMessage("Here is this morning's fact sheet.\n\n" + factSheet)
+                .addUserMessage("Here is the " + edition.label() + " fact sheet.\n\n" + factSheet)
                 .build();
 
         Message response = client.messages().create(params);

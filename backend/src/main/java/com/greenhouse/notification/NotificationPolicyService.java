@@ -152,6 +152,7 @@ public class NotificationPolicyService {
 
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("greenhouseDay", String.valueOf(snapshot.getGreenhouseDay()));
+            payload.put("edition", String.valueOf(snapshot.getEdition()));
             payload.put("generatedAt", String.valueOf(snapshot.getGeneratedAt()));
             payload.put("isUpdate", snapshot.getSupersedesSnapshotId() != null);
             payload.put("supersedesSnapshotId", snapshot.getSupersedesSnapshotId());

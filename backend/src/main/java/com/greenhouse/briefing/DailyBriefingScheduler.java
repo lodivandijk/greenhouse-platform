@@ -57,10 +57,11 @@ public class DailyBriefingScheduler {
         }
 
         try {
-            briefingService.generateIfDue(missedRunRecovery).ifPresent(snapshot ->
+            briefingService.generateIfDue(missedRunRecovery).forEach(snapshot ->
                     LOGGER.info(
-                            "Daily briefing snapshot created: id={} day={} recovery={}",
-                            snapshot.getId(), snapshot.getGreenhouseDay(), missedRunRecovery
+                            "Daily briefing snapshot created: id={} day={} edition={} recovery={}",
+                            snapshot.getId(), snapshot.getGreenhouseDay(), snapshot.getEdition(),
+                            missedRunRecovery
                     ));
         } catch (Exception e) {
             LOGGER.error("Daily briefing generation failed", e);

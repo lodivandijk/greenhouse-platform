@@ -46,14 +46,14 @@ public class BriefingSummaryService {
         }
     }
 
-    public BriefingSummary summarise(String factSheet) {
+    public BriefingSummary summarise(String factSheet, com.greenhouse.briefing.BriefingEdition edition) {
         ClaudeSummaryComposer composer = composerProvider.getIfAvailable();
         if (composer == null) {
             return BriefingSummary.unavailable("no summary writer is configured.");
         }
 
         try {
-            ClaudeSummaryComposer.ComposedSummary composed = composer.compose(factSheet);
+            ClaudeSummaryComposer.ComposedSummary composed = composer.compose(factSheet, edition);
             return BriefingSummary.written(composed.text(), composed.headline(), properties.model());
         } catch (Exception e) {
             // Every failure mode lands here on purpose - no key, no credit, no

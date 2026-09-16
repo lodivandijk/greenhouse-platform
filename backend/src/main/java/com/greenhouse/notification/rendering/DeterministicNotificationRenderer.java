@@ -61,11 +61,11 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
             headline = firstSentence(text(summary.get("text")));
         }
         if (headline.isBlank()) {
-            headline = "No summary was written this morning. The emailed briefing has the readings.";
+            headline = "No summary was written. The emailed briefing has the readings.";
         }
 
         boolean isUpdate = Boolean.TRUE.equals(payload.get("isUpdate"));
-        String title = (isUpdate ? "Greenhouse - updated briefing" : "Greenhouse - daily briefing");
+        String title = "Greenhouse - " + (isUpdate ? "updated " : "") + editionLabel(payload) + " briefing";
 
         return new RenderedNotification(title, headline, null);
     }
@@ -216,56 +216,50 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
         Map<String, Object> payload = payload(intent);
         boolean isUpdate = Boolean.TRUE.equals(payload.get("isUpdate"));
         String day = str(payload.get("greenhouseDay"));
+        String edition = editionLabel(payload);
 
-        String subject = "[Greenhouse] " + (isUpdate ? "Updated daily briefing" : "Daily briefing") + " - " + day;
+        String subject = "[Greenhouse] " + (isUpdate ? "Updated " + edition : capitalise(edition))
+                + " briefing - " + day;
 
         Map<String, Object> briefing = map(payload.get("briefing"));
         Map<String, Object> greenhouse = map(briefing.get("greenhouse"));
         List<Object> crops = list(briefing.get("crops"));
         List<Object> loops = list(briefing.get("openCareLoops"));
         List<Object> gaps = list(briefing.get("dataQualityGaps"));
-        List<Object> outcomes = list(briefing.get("recentOutcomes"));
 
         StringBuilder text = new StringBuilder();
         if (isUpdate) {
-            text.append("This is an UPDATED briefing for ").append(day)
-                    .append(", replacing an earlier one.\n\n");
+            text.append("This replaces an earlier ").append(edition).append(" briefing for ")
+                    .append(day).append(".\n\n");
         }
 
         // The summary leads: it is what the reader actually reads, and the
-        // tables below are what it is accountable to.
+        // lines below are what it is accountable to.
         Map<String, Object> summary = map(briefing.get("summary"));
         if (summary.get("text") != null) {
-            text.append(str(summary.get("text")).trim()).append("\n\n");
+            text.append(text(summary.get("text"))).append("\n\n");
             text.append("(").append(str(summary.get("attribution"))).append(")\n\n");
             text.append("----------------------------------------------------------------\n\n");
         } else if (summary.get("unavailableReason") != null) {
-            // Stated, not skipped: a briefing that quietly starts at the tables
-            // looks the same as one that never had a summary to give.
-            text.append("No summary this morning - ").append(str(summary.get("unavailableReason")))
-                    .append("\n").append("The readings below are unaffected.\n\n");
+            // Stated, not skipped: a briefing that quietly starts at the
+            // readings looks the same as one that never had a summary to give.
+            text.append("No summary this ").append(edition).append(" - ")
+                    .append(str(summary.get("unavailableReason"))).append("\n")
+                    .append("The readings below are unaffected.\n\n");
             text.append("----------------------------------------------------------------\n\n");
         }
 
-        text.append("GREENHOUSE\n");
-        text.append("  Status: ").append(str(greenhouse.get("status")))
-                .append("   Data freshness: ").append(str(greenhouse.get("freshness"))).append("\n");
-        text.append("  Temperature: ").append(fmt(greenhouse.get("temperatureCelsius"), "°C"))
-                .append("   Humidity: ").append(fmt(greenhouse.get("humidityPercent"), "%")).append("\n");
-        text.append("  Last reading: ").append(str(greenhouse.get("lastUpdatedAt"))).append("\n\n");
-
-        text.append("ACTION REQUIRED\n");
+        text.append("NEEDS ACTION\n");
         if (loops.isEmpty()) {
-            text.append("  Nothing is waiting on you right now.\n\n");
+            text.append("  Nothing is waiting on you.\n\n");
         } else {
             for (Object entry : loops) {
                 Map<String, Object> loop = map(entry);
-                text.append("  * Loop ").append(str(loop.get("careLoopId")))
-                        .append(" - ").append(str(loop.get("condition")))
+                text.append("  * ").append(humanise(str(loop.get("condition"))))
                         .append(" (").append(str(loop.get("subjectType"))).append(" ")
-                        .append(str(loop.get("subjectId"))).append(")\n");
-                text.append("      Status: ").append(str(loop.get("status"))).append("\n");
-                text.append("      Next:   ").append(str(loop.get("nextRequiredAction"))).append("\n");
+                        .append(str(loop.get("subjectId"))).append(") - loop ")
+                        .append(str(loop.get("careLoopId"))).append("\n");
+                text.append("    ").append(str(loop.get("nextRequiredAction"))).append("\n");
             }
             text.append("\n");
         }
@@ -273,72 +267,14 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
         text.append("CROPS\n");
         for (Object entry : crops) {
             Map<String, Object> crop = map(entry);
-            Map<String, Object> soil = map(crop.get("soil"));
-            Map<String, Object> prefs = map(crop.get("preferences"));
-
-            text.append("  ").append(str(crop.get("species")))
-                    .append(" (crop ").append(str(crop.get("cropId"))).append(")\n");
-
-            if (!prefs.isEmpty()) {
-                text.append("      Preferred: ").append(fmt(prefs.get("preferredTemperatureMinCelsius"), ""))
-                        .append(" to ").append(fmt(prefs.get("preferredTemperatureMaxCelsius"), "°C"))
-                        .append(", ").append(str(prefs.get("soilMoistureStrategy")).toLowerCase().replace('_', ' '))
-                        .append("\n");
-            }
-
-            if ("MEASURED".equals(str(soil.get("status")))) {
-                text.append("      Soil:      index ").append(fmt(soil.get("moistureIndex"), ""))
-                        .append(" (raw ").append(str(soil.get("rawAdc")))
-                        .append(", ").append(str(soil.get("freshness")).toLowerCase()).append(")\n");
-            } else if ("MANUAL_MONITORING".equals(str(soil.get("reason")))) {
-                // Deliberately unmeasured, which is different from a fault -
-                // but still unknown, so it must not read as "fine" either
-                // (ADR-024).
-                text.append("      Soil:      NOT MEASURED - monitored by hand; check this one yourself\n");
-            } else {
-                // Never let missing data read as "fine".
-                text.append("      Soil:      UNKNOWN - ").append(str(soil.get("reason"))).append("\n");
-            }
-
-            Map<String, Object> trend = map(crop.get("trend"));
-            String direction = str(trend.get("direction"));
-            if (!direction.isBlank() && !"UNKNOWN".equals(direction)) {
-                text.append("      Trend:     ").append(direction.toLowerCase())
-                        .append(", ").append(fmt(trend.get("changePerDayIndexPoints"), ""))
-                        .append(" index points/day over ")
-                        .append(str(trend.get("daysObserved"))).append(" days");
-                if (trend.get("projectedDaysUntilDryThreshold") != null) {
-                    // Flagged as an estimate every time it appears.
-                    text.append("; reaches its dry line in ~")
-                            .append(fmt(trend.get("projectedDaysUntilDryThreshold"), " days"))
-                            .append(" if nothing changes");
-                }
-                text.append("\n");
-            }
-
-            List<Object> assessments = list(crop.get("assessments"));
-            for (Object a : assessments) {
-                Map<String, Object> assessment = map(a);
-                text.append("      Flagged:   ").append(str(assessment.get("code")))
-                        .append(" (").append(str(assessment.get("severity"))).append(")\n");
-            }
+            text.append(cropLine(crop));
         }
         text.append("\n");
 
-        if (!outcomes.isEmpty()) {
-            text.append("RECENT OUTCOMES\n");
-            for (Object entry : outcomes) {
-                Map<String, Object> outcome = map(entry);
-                text.append("  * ").append(str(outcome.get("result")))
-                        .append(" - ").append(str(outcome.get("summary"))).append("\n");
-            }
-            text.append("\n");
-        }
-
-        text.append("DATA QUALITY\n");
-        if (gaps.isEmpty()) {
-            text.append("  No gaps - every configured sensor reported.\n\n");
-        } else {
+        // Only when there are any. "No gaps" was a line that appeared every day
+        // and told the reader nothing.
+        if (!gaps.isEmpty()) {
+            text.append("NOT MEASURED\n");
             for (Object entry : gaps) {
                 Map<String, Object> gap = map(entry);
                 text.append("  * ").append(str(gap.get("kind")));
@@ -354,9 +290,87 @@ public class DeterministicNotificationRenderer implements NotificationRenderer {
             text.append("\n");
         }
 
+        text.append("Greenhouse: ").append(str(greenhouse.get("status")))
+                .append(", ").append(fmt(greenhouse.get("temperatureCelsius"), "°C"))
+                .append(", ").append(fmt(greenhouse.get("humidityPercent"), "% humidity"))
+                .append(" (").append(str(greenhouse.get("freshness")).toLowerCase()).append(")\n\n");
+
+        // Kept however short the briefing gets: it is the one line that stops a
+        // number being misread, and brevity is not a reason to drop it.
         text.append(MOISTURE_CAVEAT).append("\n\n").append(CLAUDE_HINT).append("\n");
 
         return new RenderedNotification(subject, text.toString(), briefingHtml(subject, text.toString()));
+    }
+
+    // One line per crop: what it reads, what it should read, and where it is
+    // heading. Everything else the snapshot holds stays in the snapshot.
+    private String cropLine(Map<String, Object> crop) {
+        Map<String, Object> soil = map(crop.get("soil"));
+        Map<String, Object> trend = map(crop.get("trend"));
+
+        String name = str(crop.get("species")) + " (crop " + str(crop.get("cropId")) + ")";
+
+        String state;
+        if ("MEASURED".equals(str(soil.get("status")))) {
+            Map<String, Object> prefs = map(crop.get("preferences"));
+            StringBuilder bounds = new StringBuilder();
+            if (prefs.get("soilDryThresholdIndex") != null) {
+                bounds.append("dry ").append(fmt0(prefs.get("soilDryThresholdIndex")));
+            }
+            if (prefs.get("soilWetThresholdIndex") != null) {
+                bounds.append(bounds.length() == 0 ? "" : ", ")
+                        .append("wet ").append(fmt0(prefs.get("soilWetThresholdIndex")));
+            }
+            state = "soil " + fmt0(soil.get("moistureIndex")) + " of 100"
+                    + (bounds.length() == 0 ? "" : " (" + bounds + ")");
+        } else if ("MANUAL_MONITORING".equals(str(soil.get("reason")))) {
+            // Deliberately unmeasured, which is different from a fault - but
+            // still unknown, so it must not read as "fine" either (ADR-024).
+            state = "not measured - monitored by hand";
+        } else {
+            state = "UNKNOWN - " + humanise(str(soil.get("reason")));
+        }
+
+        StringBuilder line = new StringBuilder();
+        line.append(String.format(Locale.ROOT, "  %-24s %s", name, state));
+
+        String direction = str(trend.get("direction"));
+        if (!direction.isBlank() && !"UNKNOWN".equals(direction)) {
+            if ("STEADY".equals(direction)) {
+                line.append(" - steady");
+            } else {
+                line.append(" - ").append(direction.toLowerCase())
+                        .append(" ").append(fmt(trend.get("changePerDayIndexPoints"), "/day"));
+                if (trend.get("projectedDaysUntilDryThreshold") != null) {
+                    // Flagged as an estimate every time it appears.
+                    line.append(", ~").append(fmt0(trend.get("projectedDaysUntilDryThreshold")))
+                            .append("d to dry line if unchanged");
+                }
+            }
+        }
+        line.append("\n");
+
+        for (Object a : list(crop.get("assessments"))) {
+            Map<String, Object> assessment = map(a);
+            line.append("      ! ").append(str(assessment.get("code")))
+                    .append(" (").append(str(assessment.get("severity"))).append(")\n");
+        }
+        return line.toString();
+    }
+
+    private static String fmt0(Object value) {
+        return value instanceof Number number
+                ? String.format(Locale.ROOT, "%.0f", number.doubleValue()) : "?";
+    }
+
+    static String editionLabel(Map<String, Object> payload) {
+        String edition = text(payload.get("edition"));
+        // Older intents predate editions; they were all morning briefings.
+        return "EVENING".equalsIgnoreCase(edition) ? "evening" : "morning";
+    }
+
+    private static String capitalise(String word) {
+        return word.isEmpty() ? word : Character.toUpperCase(word.charAt(0)) + word.substring(1);
     }
 
     // --- care loop ------------------------------------------------------

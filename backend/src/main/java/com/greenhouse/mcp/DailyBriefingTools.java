@@ -62,6 +62,7 @@ public class DailyBriefingTools {
                         response.put("source", "PERSISTED_SNAPSHOT");
                         response.put("snapshotId", snapshot.get().getId());
                         response.put("greenhouseDay", String.valueOf(snapshot.get().getGreenhouseDay()));
+                        response.put("edition", String.valueOf(snapshot.get().getEdition()));
                         response.put("generatedAt", String.valueOf(snapshot.get().getGeneratedAt()));
                         response.put("briefing", snapshot.get().getSnapshot());
                         return response;

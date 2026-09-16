@@ -127,7 +127,9 @@ public record NotificationProperties(
             boolean enabled,
             String from,
             String to,
-            String messageIdDomain
+            String messageIdDomain,
+            // Which kinds of message the inbox carries. Empty means all of them.
+            java.util.List<NotificationIntentType> intentTypes
     ) {
         public Email {
             // Only validated when email is actually switched on, so the
@@ -145,6 +147,11 @@ public record NotificationProperties(
             if (messageIdDomain == null || messageIdDomain.isBlank()) {
                 messageIdDomain = "greenhouse.local";
             }
+            intentTypes = intentTypes == null ? java.util.List.of() : java.util.List.copyOf(intentTypes);
+        }
+
+        public boolean carries(NotificationIntentType intentType) {
+            return intentTypes.isEmpty() || intentTypes.contains(intentType);
         }
     }
 }

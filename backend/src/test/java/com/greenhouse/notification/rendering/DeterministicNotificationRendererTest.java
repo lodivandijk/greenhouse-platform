@@ -112,8 +112,10 @@ class DeterministicNotificationRendererTest {
         NotificationIntent original = briefingIntent(false);
         NotificationIntent update = briefingIntent(true);
 
-        assertThat(renderer.render(original, EMAIL_FORMAT).subject()).contains("Daily briefing");
-        assertThat(renderer.render(update, EMAIL_FORMAT).subject()).contains("Updated daily briefing");
+        // The edition names itself; what this guards is that a regenerated
+        // briefing is distinguishable from the day's first (ADR-033).
+        assertThat(renderer.render(original, EMAIL_FORMAT).subject()).contains("Morning briefing");
+        assertThat(renderer.render(update, EMAIL_FORMAT).subject()).contains("Updated morning briefing");
     }
 
     private NotificationIntent briefingIntent(boolean isUpdate) {
