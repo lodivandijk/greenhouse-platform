@@ -433,6 +433,83 @@ public class DailyBriefingService {
         return value == null ? null : Math.round(value * 10.0) / 10.0;
     }
 
+    // What has actually been recorded against this crop, across ALL of its
+    // record types.
+    //
+    // This used to consult actions alone and then announce "No work has ever
+    // been recorded for this crop" - a claim about four tables made by looking
+    // at one. Basil had a harvest and two observations, including the
+    // leaf-marks discussion, and the same snapshot carried them in
+    // latestHarvest and latestObservation while the fact sheet told the model
+    // there was nothing. The model has no way to catch that; it can only
+    // believe the sheet.
+    //
+    // "Work" was the wrong word too. A harvest and an observation are not work
+    // performed in the Action sense, but they are certainly a record.
+    private String recordedHistory(Crop crop, Instant windowStart) {
+        Instant now = clock.instant();
+
+        List<com.greenhouse.action.ActionResponse> actions =
+                actionService.listActions(crop.getId(), null, null);
+        List<com.greenhouse.crop.HarvestResponse> harvests =
+                harvestService.getHarvestHistory(crop.getId());
+        List<com.greenhouse.crop.CropObservationResponse> observations =
+                cropObservationService.getObservationHistory(crop.getId());
+
+        if (actions.isEmpty() && harvests.isEmpty() && observations.isEmpty()) {
+            return " Nothing has ever been recorded for this crop.";
+        }
+
+        List<String> inWindow = new ArrayList<>();
+        actions.stream()
+                .filter(action -> !action.performedAt().isBefore(windowStart))
+                .map(action -> String.valueOf(action.type()).toLowerCase())
+                .forEach(inWindow::add);
+        long harvestsInWindow = harvests.stream()
+                .filter(harvest -> !harvest.harvestedAt().isBefore(windowStart)).count();
+        if (harvestsInWindow > 0) {
+            inWindow.add(harvestsInWindow + " harvest" + (harvestsInWindow == 1 ? "" : "s"));
+        }
+        long observationsInWindow = observations.stream()
+                .filter(observation -> !observation.observedAt().isBefore(windowStart)).count();
+        if (observationsInWindow > 0) {
+            inWindow.add(observationsInWindow
+                    + " observation" + (observationsInWindow == 1 ? "" : "s"));
+        }
+
+        if (!inWindow.isEmpty()) {
+            return " Recorded in window: " + String.join(", ", inWindow) + ".";
+        }
+
+        // Nothing in the window, but the crop is not a blank page. Say how long
+        // ago each kind of record last happened, so "nothing lately" cannot be
+        // mistaken for "nothing ever".
+        List<String> lastSeen = new ArrayList<>();
+        // Both history services return ascending, so the most recent is last.
+        lastSeen.addAll(actions.stream()
+                .max(java.util.Comparator.comparing(
+                        com.greenhouse.action.ActionResponse::performedAt))
+                .map(action -> String.valueOf(action.type()).toLowerCase()
+                        + " " + daysAgo(action.performedAt(), now))
+                .stream().toList());
+        if (!harvests.isEmpty()) {
+            lastSeen.add("harvest " + daysAgo(harvests.get(harvests.size() - 1).harvestedAt(), now));
+        }
+        if (!observations.isEmpty()) {
+            lastSeen.add("observation "
+                    + daysAgo(observations.get(observations.size() - 1).observedAt(), now));
+        }
+        return " Last recorded: " + String.join(", ", lastSeen) + ".";
+    }
+
+    private static String daysAgo(Instant at, Instant now) {
+        long days = Duration.between(at, now).toDays();
+        if (days <= 0) {
+            return "today";
+        }
+        return days == 1 ? "1 day ago" : days + " days ago";
+    }
+
     @SuppressWarnings("unchecked")
     private String cropFactLine(
             Crop crop, CropMonitoringProfile profile, Map<String, Object> entry,
@@ -492,18 +569,7 @@ public class DailyBriefingService {
                     .collect(java.util.stream.Collectors.joining(", "))).append(".");
         }
 
-        List<com.greenhouse.action.ActionResponse> recentActions =
-                actionService.listActions(crop.getId(), null, windowStart);
-        if (!recentActions.isEmpty()) {
-            line.append(" Recorded in window: ").append(recentActions.stream()
-                    .map(action -> String.valueOf(action.type()))
-                    .collect(java.util.stream.Collectors.joining(", "))).append(".");
-        } else {
-            actionService.listActions(crop.getId(), 1, null).stream().findFirst().ifPresentOrElse(
-                    action -> line.append(String.format(Locale.ROOT, " Last recorded work %d days ago.",
-                            Duration.between(action.performedAt(), clock.instant()).toDays())),
-                    () -> line.append(" No work has ever been recorded for this crop."));
-        }
+        line.append(recordedHistory(crop, windowStart));
 
         return line.toString();
     }
