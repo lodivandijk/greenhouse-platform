@@ -8,9 +8,11 @@ constexpr unsigned long HEARTBEAT_INTERVAL_MS = 60000;
 constexpr unsigned long OBSERVATION_INTERVAL_MS = 60000;
 constexpr unsigned long SERIAL_BAUD_RATE = 115200;
 
-// eth0, not wlan0: the Pi's Wi-Fi lease moved from .114 to .119 on 2026-09-20
-// and silently cut off all telemetry until it was reflashed.
-constexpr char API_HOST[] = "192.168.1.113";
+// eth0's DHCP lease has moved twice in three days (.114->.119 on wlan0,
+// then .113->.114 on eth0, both on 2026-09-20 - see git log for this file).
+// Neither Pi interface has a DHCP reservation, so this address is NOT
+// stable; it is expected to need updating again until one is set up.
+constexpr char API_HOST[] = "192.168.1.114";
 constexpr uint16_t API_PORT = 8080;
 constexpr char API_HEARTBEAT_PATH[] = "/api/v1/heartbeats";
 constexpr char API_OBSERVATION_PATH[] = "/api/v1/observations";
